@@ -174,6 +174,8 @@ export interface ThreadState {
   >;
   readonly stoppedChildren: Set<string>;
   readonly strandedSteers: Set<string>;
+  /** Prompts other clients queued while no GOAT turn ran, shown once delivered; `leads` the next wake if no report preceded it. */
+  readonly externalPrompts: Map<string, { readonly text: string; leads: boolean }>;
   mcp:
     | {
         readonly name: string;
@@ -246,6 +248,7 @@ export const makeNewThreadState =
     reports: new Map(),
     stoppedChildren: new Set(),
     strandedSteers: new Set(),
+    externalPrompts: new Map(),
     mcp: undefined,
     cua: undefined,
     instructions: undefined,
