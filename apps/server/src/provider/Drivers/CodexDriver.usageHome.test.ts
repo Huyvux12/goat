@@ -217,13 +217,16 @@ const usageHarness = (input: {
       return gate;
     });
     /**
-     * With `holdFirstCheck`: releases the check forked on creation, which holds the lock, and runs
-     * one check behind it, so no check the instance started itself is still to come.
+     * Releases the check forked on creation, held by `holdFirstCheck` with the lock, and runs one
+     * check behind it, so no check the instance started itself is still to come.
      */
-    const checkAfterFirst = Deferred.await(firstCheck.reached).pipe(
-      Effect.andThen(Deferred.succeed(firstCheck.release, undefined)),
-      Effect.andThen(check),
-    );
+    const checkAfterFirst =
+      input.holdFirstCheck === true
+        ? Deferred.await(firstCheck.reached).pipe(
+            Effect.andThen(Deferred.succeed(firstCheck.release, undefined)),
+            Effect.andThen(check),
+          )
+        : Effect.die("checkAfterFirst needs holdFirstCheck");
     const abandonChecks = (on: boolean) =>
       Effect.sync(() => {
         abandoning = on;
