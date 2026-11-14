@@ -87,6 +87,7 @@ const makeDebuggee = (
     getURL: () => "http://localhost/",
     getTitle: () => "Page",
     getUserAgent: () => "Electron",
+    isLoadingMainFrame: () => false,
     reload: vi.fn(),
     reloadIgnoringCache: vi.fn(),
   });
