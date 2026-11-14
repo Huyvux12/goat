@@ -759,6 +759,7 @@ function ThreadNavigationSidebarPane(
       searchQuery={props.searchQuery}
       searchPending={threadSearch.isPending}
       projectScopeTitle={selectedProjectScope?.title ?? null}
+      onOpenEnvironmentSettings={props.onOpenEnvironmentSettings}
     />
   );
 
