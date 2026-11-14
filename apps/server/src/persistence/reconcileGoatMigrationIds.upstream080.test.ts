@@ -21,6 +21,7 @@ const UPSTREAM_80S: ReadonlyArray<readonly [number, string]> = [
   [85, "TurnItemCounts"],
   [86, "QueuedTurnInputIndex"],
   [87, "ProjectionProjectsCustomTitle"],
+  [88, "TurnItemTypeStatusIndex"],
 ];
 
 const isDatabaseNewerThanBuildError = Schema.is(DatabaseNewerThanBuildError);
