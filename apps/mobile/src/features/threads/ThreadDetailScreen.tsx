@@ -180,6 +180,7 @@ import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ProviderSubagentBar } from "./ProviderSubagentBar";
 import { SideChatParentRow } from "./SideChatParentRow";
 import { ThreadCreationFailedSlot } from "./ThreadCreationFailedSlot";
+import { CompactBeforeSendNotice, type CompactBeforeSendState } from "./CompactBeforeSendNotice";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -255,6 +256,8 @@ export interface ThreadDetailScreenProps {
   readonly providerSubagentStatus?: ProviderSubagentStatus | null;
   readonly extensionStatuses?: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>;
   readonly isCompacting: boolean;
+  /** Set while the next send compacts the thread first. */
+  readonly compactBeforeSend?: CompactBeforeSendState | null;
   readonly creationState:
     | {
         readonly kind: "preparing";
@@ -1622,6 +1625,7 @@ function ThreadDetailBody(
                       />
                     </Animated.View>
                   ) : null}
+                  <CompactBeforeSendNotice state={props.compactBeforeSend} />
                   {usageLimitsReport && activeUserInputRequestId === null ? (
                     <Animated.View
                       className="shrink-0 px-4"
