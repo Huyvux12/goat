@@ -19,6 +19,7 @@ const UPSTREAM_80S: ReadonlyArray<readonly [number, string]> = [
   [83, "CommandReadIndexes"],
   [84, "LastExecutedRunIndex"],
   [85, "TurnItemCounts"],
+  [86, "QueuedTurnInputIndex"],
   [87, "ProjectionProjectsCustomTitle"],
 ];
 
