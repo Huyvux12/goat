@@ -289,15 +289,23 @@ describe("mobile task permissions", () => {
       expect.not.objectContaining({ compactBeforeSend: true }),
     );
     state.draft = { ...state.draft, modelSelection: undefined };
-    composer.compactBeforeSend?.keepFullHistory();
+    composer.compactBeforeSend?.toggleKeepFullHistory();
     const kept = useThreadComposerState();
-    expect(kept.compactBeforeSend).toBeNull();
-    await kept.onSendMessage();
+    expect(kept.compactBeforeSend?.keepFullHistory).toBe(true);
+    kept.compactBeforeSend?.toggleKeepFullHistory();
+    const compactAgain = useThreadComposerState();
+    expect(compactAgain.compactBeforeSend?.keepFullHistory).toBe(false);
+    await compactAgain.onSendMessage();
+    expect(state.enqueue).toHaveBeenLastCalledWith(
+      expect.objectContaining({ compactBeforeSend: true }),
+    );
+    compactAgain.compactBeforeSend?.toggleKeepFullHistory();
+    await useThreadComposerState().onSendMessage();
     expect(state.enqueue).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ compactBeforeSend: true }),
     );
     // Keeping covers one send, as on web.
-    expect(useThreadComposerState().compactBeforeSend?.tokens).toBe(248_000);
+    expect(useThreadComposerState().compactBeforeSend?.keepFullHistory).toBe(false);
   });
 
   it("consumes an approval reply without queueing a parent message", async () => {
