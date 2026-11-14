@@ -180,7 +180,20 @@ export default defineConfig({
     },
   ]),
   test: {
-    include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
+          exclude: ["**/node_modules/**", "src/preview/PickPreload.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: { name: "dom", include: ["src/preview/PickPreload.test.ts"], environment: "jsdom" },
+      },
+    ],
     alias: [
       {
         find: /^electron$/,
