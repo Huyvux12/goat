@@ -32,6 +32,18 @@ Running `codex login` does not change a managed ChatGPT connection. In
 **Settings → Providers**, add a Codex instance, choose **Configure manually**,
 and complete the wizard. Then select that instance from the thread’s model picker.
 
+## Generate images
+
+Codex can generate images in a GOAT thread when your Codex version, model, and
+account support native image generation. If Codex reports that its image tool is
+unavailable, open **Settings → Providers**, edit your Codex instance, and add
+`-c features.image_generation=true` to **Launch arguments**, keeping any other
+arguments. This enables the feature for that instance without changing shared Codex
+configuration; it does not add support to an unsupported model or account.
+
+Start a new thread with that instance after saving the change and ask Codex to
+generate an image.
+
 ## Change an instance's settings
 
 Changing a Codex instance's binary path, launch arguments, environment,
