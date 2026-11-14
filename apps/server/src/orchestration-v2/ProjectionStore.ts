@@ -1244,6 +1244,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       { readonly sequence: number; readonly index: TimelineIndex }
     >();
 
+    // Other node indexes also start with thread_id. Without this hint SQLite reads a thread's live
+    // nodes through one of them and fetches every node of the thread to check its status. The
+    // query must filter on the same status list as the index of migration 060.
+    const LIVE_NODES_INDEX = sql.literal("INDEXED BY orchestration_v2_projection_nodes_live_idx");
+
     const apply: ProjectionStoreV2Shape["apply"] =
       /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
       Effect.fnUntraced(
@@ -2618,7 +2623,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             WITH RECURSIVE retained(node_id) AS (
               SELECT value FROM json_each(${cohortJson("nodeId")})
               UNION
-              SELECT node_id FROM orchestration_v2_projection_nodes
+              SELECT node_id FROM orchestration_v2_projection_nodes AS live
+                ${LIVE_NODES_INDEX}
               WHERE thread_id = ${threadId} AND status IN ('pending','starting','running','waiting')
               UNION
               SELECT root_node_id FROM orchestration_v2_projection_run_attempts
@@ -3659,10 +3665,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 WHERE subagents.child_thread_id IS NOT NULL
                   AND EXISTS (
                     SELECT 1 FROM orchestration_v2_projection_nodes AS node
+                      ${LIVE_NODES_INDEX}
                     WHERE node.thread_id = subagents.child_thread_id
-                      -- Matches nodes_live_idx; +run_id keeps thread_run_idx from scanning settled nodes.
                       AND node.status IN ('pending', 'starting', 'running', 'waiting')
-                      AND +node.run_id IS NULL
+                      AND node.run_id IS NULL
                       AND node.kind = 'root_turn'
                   )
                 UNION
@@ -4082,6 +4088,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             `,
             nodes: sql<PayloadRow>`
               SELECT node.payload_json FROM orchestration_v2_projection_nodes AS node
+                ${LIVE_NODES_INDEX}
               WHERE node.thread_id = ${threadId}
                 AND node.status IN ('pending', 'starting', 'running', 'waiting')
                 AND (
