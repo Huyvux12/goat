@@ -1883,7 +1883,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           parent_item_id, ordinal, type, status, updated_at, payload_json
         ) VALUES (
           ${`turn-item:bounded-sql-history:ordinal-${suffix}`}, ${itemThreadId}, NULL, NULL, NULL,
-          NULL, NULL, ${ordinal}, 'assistant_message', 'completed', ${nowIso},
+          NULL, NULL, ${ordinal}, 'user_message', 'completed', ${nowIso},
           ${encodeUnknownJsonString({ messageId })}
         )
       `;
@@ -1925,6 +1925,21 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       }
       assert.deepEqual(yield* readMessageIds({ messageIds: [] }), []);
       assert.deepEqual(yield* readMessageIds({ messageIds: [firstMessageId] }), [firstMessageId]);
+      // User-only reads must stay on the partial index instead of scanning every turn item.
+      const { statements, tracer } = traceSqlStatements();
+      yield* projectionStore
+        .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
+        .pipe(Effect.withTracer(tracer));
+      const ordinalLookup = statements.find((statement) => statement.includes("MIN(ordinal)"));
+      assert.isDefined(ordinalLookup);
+      const plan = (yield* sql.unsafe<{ readonly detail: string }>(
+        `EXPLAIN QUERY PLAN ${ordinalLookup}`,
+        [threadId, "[]"],
+      )).map((row) => row.detail);
+      assert.isTrue(
+        plan.some((detail) => detail.includes("turn_items_user_message_idx")),
+        plan.join("\n"),
+      );
       yield* sql`
         DELETE FROM orchestration_v2_projection_turn_items
         WHERE turn_item_id LIKE 'turn-item:bounded-sql-history:ordinal-%'
