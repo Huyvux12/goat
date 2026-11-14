@@ -1,3 +1,4 @@
+import { ExecutionEnvironmentDescriptor } from "@goat/contracts";
 import { GOAT_ENVIRONMENT_PATH, LEGACY_ENVIRONMENT_PATH } from "@goat/contracts/legacyT3Names";
 import * as HostProcess from "@goat/shared/HostProcess";
 import * as Duration from "effect/Duration";
@@ -5,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 import { spawnTailscale } from "./tailscaleExecutable.ts";
 
@@ -519,23 +520,23 @@ export const classifyTailscaleHttpsEndpoint = Effect.fn("tailscale.classifyTails
     return yield* Effect.gen(function* () {
       const url = new URL(GOAT_ENVIRONMENT_PATH, input.baseUrl);
       const request = HttpClientRequest.get(url.toString());
-      const response = yield* client.execute(request);
-      return response.status === 404
-        ? yield* client.get(new URL(LEGACY_ENVIRONMENT_PATH, input.baseUrl).toString())
-        : response;
+      const first = yield* client.execute(request);
+      const response =
+        first.status === 404
+          ? yield* client.get(new URL(LEGACY_ENVIRONMENT_PATH, input.baseUrl).toString())
+          : first;
+      if (response.status < 200 || response.status >= 300) return "not-goat" as const;
+      // A Serve mapping to another app also answers 2xx; only a GOAT descriptor proves this server.
+      const descriptor = yield* HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)(
+        response,
+      ).pipe(Effect.option);
+      return Option.isSome(descriptor) ? ("ok" as const) : ("not-goat" as const);
     }).pipe(
       Effect.timeoutOption(input.timeout ?? TAILSCALE_PROBE_TIMEOUT),
       Effect.match({
         onFailure: (error) =>
           isConnectionRefused(error) ? ("refused" as const) : ("no-answer" as const),
-        onSuccess: (response) =>
-          Option.match(response, {
-            onNone: () => "no-answer" as const,
-            onSome: (httpResponse) =>
-              httpResponse.status >= 200 && httpResponse.status < 300
-                ? ("ok" as const)
-                : ("not-goat" as const),
-          }),
+        onSuccess: Option.getOrElse(() => "no-answer" as const),
       }),
     );
   },

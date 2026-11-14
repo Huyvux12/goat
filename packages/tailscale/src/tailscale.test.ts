@@ -1,4 +1,4 @@
-import { FetchHttpClient } from "effect/http";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -100,7 +100,37 @@ function layerMockSpawner(
   );
 }
 
+const GOAT_DESCRIPTOR_BODY = JSON.stringify({
+  environmentId: "serve-test",
+  label: "Serve test",
+  platform: { os: "darwin", arch: "arm64" },
+  serverVersion: "0.0.0-test",
+  capabilities: { repositoryIdentity: true },
+});
+
 describe("tailscale", () => {
+  it.effect("does not treat a non-GOAT response on the HTTPS probe path as reachable", () =>
+    Effect.gen(function* () {
+      for (const [body, status] of [
+        ["<!doctype html><title>Other application</title>", 200],
+        [null, 204],
+      ] as const) {
+        const client = HttpClient.make((request) =>
+          Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body, { status }))),
+        );
+        const input = { baseUrl: "https://desktop.example.ts.net" };
+        const reachable = yield* probeTailscaleHttpsEndpoint(input).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+        );
+        assert.isFalse(reachable, `HTTP ${status} without a GOAT descriptor`);
+        const classification = yield* classifyTailscaleHttpsEndpoint(input).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+        );
+        assert.equal(classification, "not-goat");
+      }
+    }),
+  );
+
   it.effect("parses status facts", () =>
     Effect.gen(function* () {
       const status = yield* parseTailscaleStatus(tailscaleStatusJson);
@@ -325,7 +355,8 @@ describe("Tailscale endpoint path compatibility", () => {
       const paths: string[] = [];
       const fetchFn: typeof fetch = async (url) => {
         paths.push(new URL(String(url)).pathname);
-        return new Response(null, { status: paths.length === 1 ? status : 200 });
+        const answered = paths.length === 1 ? status : 200;
+        return new Response(answered === 200 ? GOAT_DESCRIPTOR_BODY : null, { status: answered });
       };
       const result = yield* probeTailscaleHttpsEndpoint({ baseUrl: "https://host.example" }).pipe(
         Effect.provide(FetchHttpClient.layer),

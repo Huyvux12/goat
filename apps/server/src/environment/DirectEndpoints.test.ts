@@ -9,6 +9,7 @@ import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
+import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { describe, expect, it } from "vite-plus/test";
@@ -250,12 +251,24 @@ const layerTailscaleUp = Layer.succeed(
   ),
 );
 
+const GOAT_DESCRIPTOR_BODY = JSON.stringify({
+  environmentId: "serve-test",
+  label: "Serve test",
+  platform: { os: "darwin", arch: "arm64" },
+  serverVersion: "0.0.0-test",
+  capabilities: { repositoryIdentity: true },
+});
+
+const serveProbeResponse = (request: HttpClientRequest.HttpClientRequest, status: number) =>
+  HttpClientResponse.fromWeb(
+    request,
+    new Response(status === 200 ? GOAT_DESCRIPTOR_BODY : null, { status }),
+  );
+
 const layerServeProbe = (status: number) =>
   Layer.succeed(
     HttpClient.HttpClient,
-    HttpClient.make((request) =>
-      Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status }))),
-    ),
+    HttpClient.make((request) => Effect.succeed(serveProbeResponse(request, status))),
   );
 
 const layerServeConfig = Layer.effect(
@@ -302,9 +315,7 @@ describe("DirectEndpoints Tailscale Serve", () => {
           Deferred.succeed(started, undefined).pipe(
             Effect.andThen(Deferred.await(finish)),
             Effect.andThen(Ref.get(status)),
-            Effect.map((code) =>
-              HttpClientResponse.fromWeb(request, new Response(null, { status: code })),
-            ),
+            Effect.map((code) => serveProbeResponse(request, code)),
           ),
         ),
       );
