@@ -314,7 +314,7 @@ export const colorForm = {
 export const resumed = (
   entries: ReadonlyArray<ProviderReplayEntry>,
   options?: {
-    readonly version?: "2.2.5";
+    readonly version?: "2.2.5" | "2.2.6";
     readonly goal?: OrchestrationV2ProviderThread["goal"];
     readonly external?: boolean;
     readonly supervised?: boolean;
@@ -325,6 +325,7 @@ export const resumed = (
     readonly resolveExtractedTextPath?: (path: string) => Effect.Effect<string | undefined>;
     readonly fileSystem?: FileSystem.FileSystem;
     readonly onPrompt?: (input: unknown) => void;
+    readonly borrowers?: { current: number };
   },
 ) =>
   Effect.gen(function* () {
@@ -334,7 +335,7 @@ export const resumed = (
         out("session.get", { sessionID: SESSION }),
         replyData("session.get", sessionInfo()),
         ...noOpenRequests,
-        ...(options?.version === "2.2.5"
+        ...(options?.version === "2.2.5" || options?.version === "2.2.6"
           ? [out("rpc.call", "<any>"), reply("rpc.call", { output: null })]
           : []),
         ...withInstructions([
@@ -359,6 +360,7 @@ export const resumed = (
           : { memoryInstructions: options.memoryInstructions }),
         ...(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem }),
         ...(options?.onPrompt === undefined ? {} : { onPrompt: options.onPrompt }),
+        ...(options?.borrowers === undefined ? {} : { borrowers: options.borrowers }),
         ...(options?.external === undefined ? {} : { external: options.external }),
         ...(options?.replayGate === undefined ? {} : { replayGate: options.replayGate }),
         ...(options?.attachmentsDir === undefined

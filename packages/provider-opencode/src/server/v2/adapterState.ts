@@ -121,6 +121,18 @@ export interface ThreadState {
   readonly sessionId: string;
   providerThread: OrchestrationV2ProviderThread;
   publishedBackgroundWork?: boolean;
+  readonly imageJobs: Map<
+    string,
+    {
+      readonly turn: ActiveTurn;
+      readonly toolId: string;
+      readonly tool: { readonly name: string; input: Record<string, unknown> };
+      previewed: boolean;
+      readonly path: string;
+      readonly model: string;
+      status: "running" | "completed" | "error" | "cancelled";
+    }
+  >;
   goalRevision: number;
   goalFresh: boolean;
   goalRefreshing: boolean;
