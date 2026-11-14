@@ -5,6 +5,7 @@ import {
   DesktopBrowserEvent,
   PREVIEW_AGENT_INPUT_HELD_GLOBAL,
   type DesktopBrowserEvent as DesktopBrowserEventType,
+  type PreviewAutomationLoadError,
 } from "@goat/contracts";
 import * as Context from "effect/Context";
 import * as NodePath from "node:path";
@@ -94,6 +95,7 @@ export class DesktopBrowserHost extends Context.Service<
     readonly handleCommandLine: (line: string) => Effect.Effect<void>;
     readonly attach: (key: DesktopBrowserTabKey, debuggee: DesktopBrowserTabDebugger) => void;
     readonly detach: (key: DesktopBrowserTabKey) => void;
+    readonly loadFailed: (key: DesktopBrowserTabKey, failure: PreviewAutomationLoadError) => void;
     readonly setShown: (key: DesktopBrowserTabKey, shown: boolean | undefined) => void;
     readonly humanStartedDownload: (source: Electron.WebContents) => boolean;
     readonly placeDownload: (source: Electron.WebContents, item: Electron.DownloadItem) => boolean;
@@ -568,6 +570,10 @@ export const make = Effect.gen(function* () {
     if (tabs.get(id)?.stopWaiting === null) emit({ type: "shown", ...key, shown });
   };
 
+  const loadFailed: DesktopBrowserHost["Service"]["loadFailed"] = (key, failure) => {
+    if (tabs.has(keyOf(key))) emit({ type: "loadFailed", ...key, ...failure });
+  };
+
   const handleCommandLine = (line: string) =>
     Effect.sync(() => {
       const command = decodeCommand(line);
@@ -650,6 +656,7 @@ export const make = Effect.gen(function* () {
     handleCommandLine,
     attach,
     detach,
+    loadFailed,
     setShown,
     placeDownload,
     humanStartedDownload,

@@ -95,6 +95,7 @@ import {
 } from "./ServerBrowserSessions.ts";
 import { pointBefore, sleepUntil, tabKey } from "./ServerBrowserPointer.ts";
 import * as ServerBrowserScreen from "./ServerBrowserScreen.ts";
+import { loadErrorOf } from "./serverBrowserLoadError.ts";
 import { guardedHistoryNavigation } from "./ServerBrowserHistory.ts";
 import { guardedNavigate, resolveNavigationUrl } from "./ServerBrowserNavigate.ts";
 import { makeBrowserHistorySupport } from "./BrowserHistoryRecordAction.ts";
@@ -307,6 +308,7 @@ interface ServerTab {
   /** A read queued behind `desktopViewportRead`, shared by every caller that waits for it. */
   desktopViewportNext: Promise<ServerTab["desktopViewport"]> | null;
   loading: boolean;
+  loadError: import("@goat/contracts").PreviewAutomationLoadError | undefined;
   closing: boolean;
   recording: Recording | null;
   initialNavigation: Promise<void> | null;
@@ -686,6 +688,7 @@ const make = Effect.gen(function* () {
         desktopViewportRead: Promise.resolve(null),
         desktopViewportNext: null,
         loading: false,
+        loadError: undefined,
         closing: false,
         recording: null,
         recordingStart: null,
@@ -737,6 +740,7 @@ const make = Effect.gen(function* () {
         tab.documentGeneration++;
         clearAbortedNavigation(tab);
         tab.loading = true;
+        tab.loadError = undefined;
         report(tab, {
           _tag: "Loading",
           url: ServerBrowserPage.withoutDataPayload(request.url()).slice(0, 2048),
@@ -799,13 +803,9 @@ const make = Effect.gen(function* () {
         }
         tab.loading = false;
         const { code, description } = ServerBrowserPage.parseNetError(errorText);
-        report(tab, {
-          _tag: "LoadFailed",
-          url: ServerBrowserPage.withoutDataPayload(request.url()).slice(0, 2048),
-          title: "",
-          code,
-          description,
-        });
+        const url = ServerBrowserPage.withoutDataPayload(request.url()).slice(0, 2048);
+        tab.loadError = { url, code, description };
+        report(tab, { _tag: "LoadFailed", url, title: "", code, description });
       });
       page.on("dialog", (dialog) => {
         tab.dialog = dialog;
@@ -1338,6 +1338,7 @@ const make = Effect.gen(function* () {
     }
     const url = ServerBrowserPage.withoutDataPayload(tab.page.url());
     const viewport = tab.desktop ? await layoutSize(tab) : tab.page.viewportSize();
+    const loadError = loadErrorOf(tab, desktopChannel);
     const status = {
       available: true,
       visible: capacity.visible(tab),
@@ -1345,6 +1346,7 @@ const make = Effect.gen(function* () {
       url: url === "about:blank" ? null : url,
       title: null,
       loading: tab.loading,
+      ...(loadError ? { loadError } : {}),
       documentGeneration: tab.documentGeneration,
       control: {
         owner: tabOwner(tab),
@@ -1999,7 +2001,12 @@ const make = Effect.gen(function* () {
               timeoutMs: deadlineMs - performance.now(),
             }),
           deadlineMs,
-        ).then(ServerBrowserScreen.recheck(tab, request));
+        )
+          .then(ServerBrowserScreen.recheck(tab, request))
+          .then((snapshot) => {
+            const loadError = loadErrorOf(tab, desktopChannel);
+            return loadError ? { ...snapshot, loadError } : snapshot;
+          });
       }
       case "logs":
         return tab.diagnostics.readMasked(decodeLogsInput(input));
