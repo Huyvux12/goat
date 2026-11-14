@@ -14,7 +14,6 @@ import type {
 } from "./ProjectionStore.ts";
 import type { ShellSubscriberOptions } from "./ProjectionShellThreadRows.ts";
 import {
-  type ChatAttachment,
   CommandId,
   MessageId,
   OrchestrationV2StopWorkflowError,
@@ -22,12 +21,10 @@ import {
   OrchestrationV2ForceStopThreadError,
   type OrchestrationV2ForceStopThreadInput,
   type OrchestrationV2ForceStopThreadResult,
-  type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
   type OrchestrationV2GetTurnItemResult,
   type OrchestrationV2ServerCommand,
-  type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
@@ -40,7 +37,6 @@ import {
   ProviderInstanceId,
   resolveProjectProviderInstanceEnabled,
   RunId,
-  type ScheduledTaskId,
   type RuntimeRequestId,
   ThreadId,
   type TurnItemId,
@@ -160,77 +156,25 @@ export function existingThreadIdsForCommand(
   }
 }
 
-export type ThreadManagementTerminalRunStatus = Extract<
-  OrchestrationV2Run["status"],
-  "completed" | "failed" | "cancelled" | "interrupted" | "rolled_back"
->;
+import type {
+  ThreadManagementTerminalRunStatus,
+  ThreadManagementSendInput,
+  ThreadManagementSendResult,
+  ThreadManagementWaitInput,
+  ThreadManagementWaitResult,
+  ThreadManagementInterruptInput,
+  ThreadManagementInterruptResult,
+} from "./threadManagementTypes.ts";
 
-export interface ThreadManagementSendInput {
-  readonly projectId: ProjectId;
-  readonly commandId: CommandId;
-  readonly threadId: ThreadId;
-  readonly messageId: MessageId;
-  readonly scheduledTaskId?: ScheduledTaskId;
-  readonly memoryGrantCeiling?: import("@goat/contracts").MemoryTaskGrantCeiling;
-  readonly senderThreadId?: ThreadId;
-  readonly text: string;
-  readonly context?: import("@goat/contracts").OrchestrationMessageContext | undefined;
-  readonly attachments: ReadonlyArray<ChatAttachment>;
-  readonly modelSelection?: ModelSelection;
-  readonly mode: ThreadManagementSendMode;
-  readonly targetRunId?: RunId;
-  readonly createdBy: OrchestrationV2Actor;
-  readonly creationSource: OrchestrationV2CreationSource;
-}
-
-export interface ThreadManagementSendResult {
-  readonly dispatch: Orchestrator.OrchestratorV2DispatchResult;
-  readonly projection: Pick<
-    OrchestrationV2ThreadProjection,
-    "thread" | "runs" | "messages" | "turnItems"
-  >;
-  readonly message: OrchestrationV2ConversationMessage;
-  readonly run: OrchestrationV2Run;
-  readonly turnItem: Extract<OrchestrationV2TurnItem, { readonly type: "user_message" }> | null;
-  readonly delivery: "started" | "queued" | "steered" | "restarted";
-}
-
-export interface ThreadManagementWaitInput {
-  readonly projectId: ProjectId;
-  readonly threadId: ThreadId;
-  readonly runId?: RunId;
-  readonly timeoutMs: number;
-  readonly ignoreRequestIds?: ReadonlyArray<RuntimeRequestId>;
-  /** Internal settling still waits for the run to finish. */
-  readonly releaseOnPendingQuestion?: boolean;
-}
-
-export interface ThreadManagementWaitResult {
-  readonly threadId: ThreadId;
-  readonly run: OrchestrationV2Run | null;
-  readonly timedOut: boolean;
-  readonly pendingRequestIds?: ReadonlyArray<RuntimeRequestId>;
-}
-
-export interface ThreadManagementInterruptInput {
-  readonly projectId: ProjectId;
-  readonly commandId: CommandId;
-  readonly threadId: ThreadId;
-  readonly runId?: RunId;
-  readonly reason?: string;
-}
-
-export type ThreadManagementInterruptResult =
-  | {
-      readonly type: "interrupt_requested";
-      readonly run: OrchestrationV2Run;
-      readonly dispatch: Orchestrator.OrchestratorV2DispatchResult;
-    }
-  | { readonly type: "no_active_run" }
-  | {
-      readonly type: "already_terminal";
-      readonly run: OrchestrationV2Run & { readonly status: ThreadManagementTerminalRunStatus };
-    };
+export type {
+  ThreadManagementTerminalRunStatus,
+  ThreadManagementSendInput,
+  ThreadManagementSendResult,
+  ThreadManagementWaitInput,
+  ThreadManagementWaitResult,
+  ThreadManagementInterruptInput,
+  ThreadManagementInterruptResult,
+} from "./threadManagementTypes.ts";
 
 export class ThreadManagementThreadNotFoundError extends Schema.TaggedError<ThreadManagementThreadNotFoundError>()(
   "ThreadManagementThreadNotFoundError",
