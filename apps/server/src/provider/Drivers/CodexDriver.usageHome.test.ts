@@ -28,6 +28,7 @@ import {
 } from "../../orchestration-v2/Adapters/CodexReplay.testkit.ts";
 import { CodexDriver } from "./CodexDriver.ts";
 import { layerTest } from "./CodexDriver.testkit.ts";
+import { currentObservedOperation, observing } from "./CodexObservedOperation.testkit.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
@@ -63,13 +64,15 @@ const usageTranscript = (name: string, usedPercent: number) => {
 /**
  * An instance with an unrelated variable whose sessions replay `usage` by session name. The factory
  * always starts a fresh process; `preservedRecord` lists a kept record as if one had exited.
- * `onOpen` runs while a session's process starts and `onSpawn` while a check launches Codex.
+ * `onOpen` runs while a session's process starts and `onSpawn` while a check launches Codex;
+ * `holdFirstCheck` stops the check the instance starts on creation before it reads anything.
  */
 const usageHarness = (input: {
   readonly host: NodeJS.ProcessEnv;
   readonly usage: Readonly<Record<string, number>>;
   readonly homeDirectory?: string;
   readonly preservedRecord?: boolean;
+  readonly holdFirstCheck?: boolean;
   readonly onOpen?: () => Effect.Effect<void>;
   readonly onSpawn?: () => Effect.Effect<void>;
 }) =>
@@ -89,6 +92,11 @@ const usageHarness = (input: {
     let startGate:
       | { reached: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
       | undefined;
+    const firstCheck = {
+      reached: yield* Deferred.make<void>(),
+      release: yield* Deferred.make<void>(),
+    };
+    if (input.holdFirstCheck === true) startGate = firstCheck;
     const instance = yield* CodexDriver.create({
       instanceId,
       displayName: "Usage home test",
@@ -208,6 +216,17 @@ const usageHarness = (input: {
       startGate = gate;
       return gate;
     });
+    /**
+     * Releases the check forked on creation, held by `holdFirstCheck` with the lock, and runs one
+     * check behind it, so no check the instance started itself is still to come.
+     */
+    const checkAfterFirst =
+      input.holdFirstCheck === true
+        ? Deferred.await(firstCheck.reached).pipe(
+            Effect.andThen(Deferred.succeed(firstCheck.release, undefined)),
+            Effect.andThen(check),
+          )
+        : Effect.die("checkAfterFirst needs holdFirstCheck");
     const abandonChecks = (on: boolean) =>
       Effect.sync(() => {
         abandoning = on;
@@ -220,6 +239,7 @@ const usageHarness = (input: {
       holdNextCheck,
       holdNextCheckStart,
       abandonChecks,
+      checkAfterFirst,
     };
   });
 
@@ -227,11 +247,12 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
   it.effect("usage counts only for the home of the last committed check", () =>
     Effect.gen(function* () {
       const host: NodeJS.ProcessEnv = { HOME: "/fixture", CODEX_HOME: "/fixture/a" };
-      const { open, percents, check } = yield* usageHarness({
+      const { open, percents, check, checkAfterFirst } = yield* usageHarness({
         host,
         usage: { a: 10, b: 50, b2: 60 },
+        holdFirstCheck: true,
       });
-      yield* check;
+      yield* checkAfterFirst;
       const reportA = yield* open("a");
       host.CODEX_HOME = "/fixture/b";
       const reportB = yield* open("b");
@@ -279,25 +300,48 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("a usage report reads no environment", () =>
+  it.effect("a usage report reads no environment, even while a background check reads it", () =>
     Effect.gen(function* () {
       let reads = 0;
+      // Reads made by the session's own fibers, which inherit the operation from its open.
+      let sessionReads = 0;
       const host = new Proxy<NodeJS.ProcessEnv>(
         { HOME: "/fixture", CODEX_HOME: "/fixture/a" },
         {
           ownKeys: (target) => {
             reads += 1;
+            if (currentObservedOperation() === "session") sessionReads += 1;
             return Reflect.ownKeys(target);
           },
         },
       );
-      const { open, percents, check } = yield* usageHarness({ host, usage: { a: 10 } });
-      yield* check;
-      const report = yield* open("a");
-      const before = reads;
-      yield* report;
+      // Set once the background check below is released: it reports its launch and stays there.
+      let holdLaunch = false;
+      const checkLaunched = yield* Deferred.make<void>();
+      const { open, percents, check, holdNextCheckStart, checkAfterFirst } = yield* usageHarness({
+        host,
+        usage: { a: 10 },
+        holdFirstCheck: true,
+        onSpawn: () =>
+          holdLaunch
+            ? Deferred.succeed(checkLaunched, undefined).pipe(Effect.andThen(Effect.never))
+            : Effect.void,
+      });
+      yield* checkAfterFirst;
+      // A check outside the session's operation, held before it reads anything.
+      const gate = yield* holdNextCheckStart;
+      yield* check.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.reached);
+      const report = yield* open("a").pipe(observing("session"));
+      const [before, sessionBefore] = [reads, sessionReads];
+      holdLaunch = true;
+      yield* Deferred.succeed(gate.release, undefined);
+      yield* report.pipe(observing("session"));
+      // The released check has read the environment and is launching Codex; it never publishes.
+      yield* Deferred.await(checkLaunched);
       expect(yield* percents).toContain(10);
-      expect(reads).toBe(before);
+      expect(reads).toBeGreaterThan(before);
+      expect(sessionReads).toBe(sessionBefore);
     }).pipe(Effect.scoped),
   );
 
@@ -532,7 +576,7 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
       Effect.gen(function* () {
         const { root, point } = yield* homeLink;
         let moveOnSpawn = false;
-        const { open, percents, check } = yield* usageHarness({
+        const { open, percents, check, checkAfterFirst } = yield* usageHarness({
           host: { HOME: root, CODEX_HOME: `${root}/link` },
           usage: { after: 40 },
           homeDirectory: root,
@@ -541,7 +585,10 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
             moveOnSpawn = false;
             return point("b");
           },
+          holdFirstCheck: true,
         });
+        // Before the link moves, so only the next check sees the move.
+        yield* checkAfterFirst;
         yield* point("a");
         moveOnSpawn = true;
         yield* check;
