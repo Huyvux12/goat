@@ -15,6 +15,7 @@ import { GOAT_MIGRATION_NAMES, reconcileGoatMigrationIds } from "./reconcileGoat
 const UPSTREAM_80S: ReadonlyArray<readonly [number, string]> = [
   [80, "ScheduledTaskThreadMode"],
   [81, "ProjectionMessageSearchText"],
+  [87, "ProjectionProjectsCustomTitle"],
 ];
 
 const isDatabaseNewerThanBuildError = Schema.is(DatabaseNewerThanBuildError);

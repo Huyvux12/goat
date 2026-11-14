@@ -89,6 +89,7 @@ import Migration0078 from "./Migrations/078_DropOrchestrationEventCorrelationInd
 import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
 import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import Migration0081 from "./Migrations/081_ProjectionMessageSearchText.ts";
+import Migration0087 from "./Migrations/087_ProjectionProjectsCustomTitle.ts";
 import Migration0090 from "./Migrations/090_ServerActivityIndexes.ts";
 import Migration0091 from "./Migrations/091_RemoteReports.ts";
 import Migration0092 from "./Migrations/092_RemoteDispatches.ts";
@@ -241,6 +242,7 @@ export const migrationEntries = [
   [79, "DelegatedRecoveryIndexes", Migration0079],
   [80, "ScheduledTaskThreadMode", Migration0080],
   [81, "ProjectionMessageSearchText", Migration0081],
+  [87, "ProjectionProjectsCustomTitle", Migration0087],
   // GOAT's own migrations follow upstream's. When an upstream sync claims these ids, move them
   // up and add the names to GOAT_MIGRATION_NAMES; reconcileGoatMigrationIds fixes old ledgers.
   [90, "ServerActivityIndexes", Migration0090],

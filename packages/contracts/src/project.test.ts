@@ -253,3 +253,25 @@ effectIt.effect("an icon kind from a newer server shows the default icon", () =>
     assert.strictEqual(broken._tag, "Failure");
   }),
 );
+
+const { hasCustomTitle: _newField, ...olderShellFields } = OrchestrationProjectShell.fields;
+const decodeOlderProjectShell = Schema.decodeUnknownEffect(Schema.Struct(olderShellFields));
+
+effectIt.effect("a project shell decodes with or without hasCustomTitle across versions", () =>
+  Effect.gen(function* () {
+    const fromOlderServer = {
+      id: "project-1",
+      title: "Project",
+      workspaceRoot: "/tmp/project",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    assert.isUndefined((yield* decodeProjectShell(fromOlderServer)).hasCustomTitle);
+    const fromNewerServer = { ...fromOlderServer, hasCustomTitle: true };
+    assert.isTrue((yield* decodeProjectShell(fromNewerServer)).hasCustomTitle);
+    // An older client's shell has no such field and drops it.
+    assert.notProperty(yield* decodeOlderProjectShell(fromNewerServer), "hasCustomTitle");
+  }),
+);
