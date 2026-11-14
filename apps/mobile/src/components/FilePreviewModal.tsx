@@ -1,3 +1,5 @@
+import { AssetWorkspaceAssetNotFoundError } from "@goat/contracts";
+import * as Schema from "effect/Schema";
 import * as Dialog from "./ui/Dialog";
 import { useNavigation } from "@react-navigation/native";
 import {
@@ -38,6 +40,8 @@ export type {
   ResolvedFilePreviewSource,
 } from "./FilePreviewModal.types";
 
+const isAssetNotFoundError = Schema.is(AssetWorkspaceAssetNotFoundError);
+
 function PreviewItemResolver(props: {
   readonly source: FilePreviewItem;
   readonly onResolved: (source: ResolvedFilePreviewSource) => void;
@@ -49,6 +53,7 @@ function PreviewItemResolver(props: {
   const refreshAssetUrl = useRefreshAssetUrl(
     environmentId,
     "resource" in source ? source.resource : null,
+    { reportError: true },
   );
   // Resolve once per presentation; background URL refreshes must not reopen the native viewer.
   const [uri, setUri] = useState<string | null>("uri" in source ? source.uri : null);
@@ -73,7 +78,9 @@ function PreviewItemResolver(props: {
         if (cancelled) return;
         onResolutionError(
           error,
-          "Reconnect to this environment and try again. The file may have been moved or deleted.",
+          isAssetNotFoundError(error)
+            ? `The file was not found at ${error.checkedPath ?? ("path" in error.resource ? error.resource.path : "the requested path")}.`
+            : "Reconnect to this environment and try again. The file may have been moved or deleted.",
         );
       });
     return () => {
