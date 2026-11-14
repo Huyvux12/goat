@@ -28,7 +28,9 @@ const AGENT_INPUT_COMMAND =
   /"method":"(?:Input\.|Page\.(?:navigate|navigateToHistoryEntry|reload)"|Runtime\.(?:evaluate|callFunctionOn)")/;
 const AGENT_INPUT_METHOD =
   /^(?:Input\.|Page\.(?:navigate|navigateToHistoryEntry|reload)$|Runtime\.(?:evaluate|callFunctionOn)$)/;
-const AGENT_DOWNLOAD_WINDOW_MS = 5_000;
+const AGENT_INPUT_WINDOW_MS = 5_000;
+/** A viewer's pointer travelling over the stream activates nothing on the page. */
+const POINTER_TRAVEL = new Set<unknown>(["mouseMoved", "mouseWheel"]);
 const FOCUS_IDLE = "5 seconds";
 /** Well inside the server's 10 s DESKTOP_ATTACH_TIMEOUT, for a first page that never reports it is up. */
 const FIRST_PAGE_TIMEOUT = "5 seconds";
@@ -62,6 +64,8 @@ interface AttachedTab {
   downloadDirectory: string | null;
   pendingDownloadGuid: string | null;
   agentInputAt: number;
+  /** When the agent last drove the page with no person's input through a viewer since. */
+  agentLedAt: number;
   focusEmulated: boolean;
   focusChange: Promise<void> | null;
   focusUses: number;
@@ -100,6 +104,8 @@ export class DesktopBrowserHost extends Context.Service<
     readonly loadFailed: (key: DesktopBrowserTabKey, failure: PreviewAutomationLoadError) => void;
     readonly setShown: (key: DesktopBrowserTabKey, shown: boolean | undefined) => void;
     readonly humanStartedDownload: (source: Electron.WebContents) => boolean;
+    /** Whether what the page does now follows the agent's input, not a viewer's. */
+    readonly agentLedPage: (source: Electron.WebContents) => boolean;
     readonly placeDownload: (source: Electron.WebContents, item: Electron.DownloadItem) => boolean;
     readonly pointers: Stream.Stream<AgentPointer>;
     /** Each relayed screenshot as it starts and as it settles. */
@@ -377,11 +383,13 @@ export const make = Effect.gen(function* () {
             syncPainting(tab);
           }
           // A person's input through a viewer, or Playwright's own housekeeping, is not the agent's.
-          if (
-            AGENT_INPUT_METHOD.test(method) &&
-            (owner === undefined || !streamingOwners.has(owner))
-          ) {
-            tab.agentUsed = true;
+          if (AGENT_INPUT_METHOD.test(method)) {
+            if (owner === undefined || !streamingOwners.has(owner)) {
+              tab.agentUsed = true;
+              tab.agentLedAt = performance.now();
+            } else if (method.startsWith("Input.") && !POINTER_TRAVEL.has(params["type"])) {
+              tab.agentLedAt = Number.NEGATIVE_INFINITY;
+            }
           }
           // Waits for focus emulation; insertText and other non-CDP input would not queue behind it.
           const forward = (current?: () => boolean) => {
@@ -496,6 +504,7 @@ export const make = Effect.gen(function* () {
       downloadDirectory: null,
       pendingDownloadGuid: null,
       agentInputAt: Number.NEGATIVE_INFINITY,
+      agentLedAt: Number.NEGATIVE_INFINITY,
       focusEmulated: false,
       focusChange: null,
       focusUses: 0,
@@ -627,7 +636,12 @@ export const make = Effect.gen(function* () {
 
   const humanStartedDownload = (source: Electron.WebContents) => {
     const tab = [...tabs.values()].find((candidate) => candidate.debuggee.webContents === source);
-    return tab !== undefined && performance.now() - tab.agentInputAt > AGENT_DOWNLOAD_WINDOW_MS;
+    return tab !== undefined && performance.now() - tab.agentInputAt > AGENT_INPUT_WINDOW_MS;
+  };
+
+  const agentLedPage = (source: Electron.WebContents) => {
+    const tab = [...tabs.values()].find((candidate) => candidate.debuggee.webContents === source);
+    return tab !== undefined && performance.now() - tab.agentLedAt <= AGENT_INPUT_WINDOW_MS;
   };
 
   const announceAll = Effect.suspend(() => {
@@ -671,6 +685,7 @@ export const make = Effect.gen(function* () {
     setShown,
     placeDownload,
     humanStartedDownload,
+    agentLedPage,
   });
 });
 

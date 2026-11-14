@@ -239,6 +239,7 @@ it.effect.each([false, true])(
               setShown: () => {},
               loadFailed: () => {},
               humanStartedDownload: () => false,
+              agentLedPage: () => false,
               placeDownload: () => false,
             }),
             Layer.mock(DesktopHeadlessServer.DesktopHeadlessServer, {}),
