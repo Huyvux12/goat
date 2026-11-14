@@ -1,10 +1,17 @@
-import type { RuntimeRequestId } from "@goat/contracts";
+import type { EnvironmentId, RuntimeRequestId, ThreadId } from "@goat/contracts";
 import type { ThreadUserInputQuestion } from "@goat/client-runtime/state/thread-requests";
 import {
   markdownProseDirection,
   textDirection,
   type TextDirection,
 } from "@goat/shared/textDirection";
+import { useNavigation } from "@react-navigation/native";
+import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
+import {
+  fileRoutePathSegments,
+  resolveFileLinkPath,
+  resolveWorkspaceRelativeFilePath,
+} from "../files/filePath";
 import type { ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -22,6 +29,9 @@ import { useMarkdownPreviewStyles } from "../files/FileMarkdownPreview";
 // Kept apart from PendingUserInputCardProps so the card can import this body
 // without an import cycle.
 type BodyProps = {
+  readonly environmentId?: EnvironmentId;
+  readonly threadId?: ThreadId;
+  readonly workspaceRoot?: string | null;
   readonly pendingUserInput: PendingUserInput;
   readonly drafts: Record<string, PendingUserInputDraftAnswer>;
   readonly respondingUserInputId: RuntimeRequestId | null;
@@ -41,10 +51,30 @@ type BodyProps = {
 /** Renders question text as markdown so agent-provided links open on tap. */
 function QuestionText(props: {
   readonly markdown: string;
+  readonly environmentId?: EnvironmentId;
+  readonly threadId?: ThreadId;
+  readonly workspaceRoot?: string | null;
   readonly setDirection: TextDirection | undefined;
 }) {
   const styles = useMarkdownPreviewStyles();
-  const openLink = useOpenPullRequest();
+  const openPullRequest = useOpenPullRequest();
+  const navigation = useNavigation();
+  const openLink = (href: string) => {
+    const link = resolveMarkdownLinkPresentation(href);
+    if (link.kind !== "file" || !props.environmentId || !props.threadId) {
+      void openPullRequest(href);
+      return;
+    }
+    const root = props.workspaceRoot ?? null;
+    const path = resolveFileLinkPath(root, link.path);
+    if (path === null) return;
+    navigation.navigate("ThreadFile", {
+      environmentId: String(props.environmentId),
+      threadId: String(props.threadId),
+      path: fileRoutePathSegments(resolveWorkspaceRelativeFilePath(root, path) ?? path),
+      ...(link.line ? { line: String(link.line) } : {}),
+    });
+  };
   return (
     <SelectableMarkdownText
       markdown={props.markdown}
@@ -99,7 +129,13 @@ export function PendingUserInputBody(props: BodyProps) {
             >
               {question.header}
             </Text>
-            <QuestionText markdown={question.question} setDirection={setDirection} />
+            <QuestionText
+              markdown={question.question}
+              setDirection={setDirection}
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              workspaceRoot={props.workspaceRoot}
+            />
             <View className="gap-2">
               {question.options.map((option) => {
                 const optionValue = option.value ?? option.label.trim();
