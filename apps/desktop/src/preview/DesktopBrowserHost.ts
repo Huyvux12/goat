@@ -42,6 +42,8 @@ export interface DesktopBrowserTabKey {
 export interface DesktopBrowserTabDebugger {
   readonly webContents: Electron.WebContents;
   readonly debugger: Electron.Debugger;
+  /** Runs after the server clears the tab's cookies, so state kept beside them goes too. */
+  readonly cookiesCleared?: () => Promise<void>;
 }
 
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
@@ -328,8 +330,17 @@ export const make = Effect.gen(function* () {
 
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
-    const { webContents, debugger: debuggee } = tab.debuggee;
+    const { webContents, debugger: debuggee, cookiesCleared } = tab.debuggee;
     const send = async (method: string, params: Record<string, unknown>, sessionId?: string) => {
+      const result = await sendCommand(method, params, sessionId);
+      if (method === "Network.clearBrowserCookies") await cookiesCleared?.();
+      return result;
+    };
+    const sendCommand = async (
+      method: string,
+      params: Record<string, unknown>,
+      sessionId?: string,
+    ) => {
       if (method === "Page.reload" && sessionId === undefined) {
         // Embedded guests can acknowledge CDP reload without navigating.
         // Keep Playwright's CDP lifecycle waiter, but drive the exact guest.

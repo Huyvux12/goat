@@ -94,6 +94,7 @@ const layerBrowserSession = Layer.succeed(
     isPartition: (partition) => partition.startsWith("persist:t3code-preview-"), // goat-rename: legacy
     getSession: () => Effect.succeed(previewSession as unknown as Electron.Session),
     clearCookies: () => Effect.void,
+    cookiesCleared: () => Effect.void,
     clearCache: () => Effect.void,
   }),
 );

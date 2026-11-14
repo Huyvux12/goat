@@ -335,6 +335,30 @@ describe("DesktopBrowserHost", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("tells the tab's browser session after the agent clears its cookies", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      const cookiesCleared = vi.fn(async () => {});
+      host.attach(key, { ...debuggee.tab, cookiesCleared });
+      const replies = yield* watchReplies(host);
+
+      const answer = (id: number, method: string) =>
+        Effect.gen(function* () {
+          const sent = debuggee.nextSend();
+          yield* command(host, id, method);
+          yield* Effect.promise(() => sent);
+          debuggee.release();
+          return yield* Queue.take(replies);
+        });
+
+      expect(yield* answer(1, "Network.getCookies")).toBe(1);
+      expect(cookiesCleared).not.toHaveBeenCalled();
+      expect(yield* answer(2, "Network.clearBrowserCookies")).toBe(2);
+      expect(cookiesCleared).toHaveBeenCalledOnce();
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("sends a page one screenshot at a time", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;
