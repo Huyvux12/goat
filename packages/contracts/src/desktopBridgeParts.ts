@@ -9,8 +9,13 @@ export interface DesktopHeadlessServerBridge {
   setHeadlessServerAttachEnabled?: (enabled: boolean) => Promise<void>;
 }
 
+export interface DesktopPrimaryPasteBridge {
+  getPrimaryPasteEnabled?: () => boolean;
+}
+
 /** Desktop bridge methods that live in their own modules, so ipc.ts stays within its budget. */
-export type DesktopBridgeParts = DesktopWindowMaterialBridge &
+export type DesktopBridgeParts = DesktopPrimaryPasteBridge &
+  DesktopWindowMaterialBridge &
   DesktopPreviewSessionStackHost &
   DesktopHeadlessServerBridge &
   DesktopTrayBridge &

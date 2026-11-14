@@ -35,6 +35,10 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
 import type * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import {
+  PASSKEY_BRIDGE_ARGUMENT,
+  PRIMARY_PASTE_DISABLED_ARGUMENT,
+} from "../preview/GuestProtocol.ts";
 import { makeFakeBrowserWindow } from "./DesktopWindow.test-fixtures.ts";
 import { layerTest, makeSplashScenario } from "./DesktopWindow.testkit.ts";
 
@@ -805,6 +809,43 @@ describe("DesktopWindow", () => {
         ]);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect.each([
+    {
+      primaryPasteEnabled: false,
+      expected: [PASSKEY_BRIDGE_ARGUMENT, PRIMARY_PASTE_DISABLED_ARGUMENT],
+    },
+    { primaryPasteEnabled: true, expected: [PASSKEY_BRIDGE_ARGUMENT] },
+  ])(
+    "passes the primary-paste setting to preview guests (enabled: $primaryPasteEnabled)",
+    ({ primaryPasteEnabled, expected }) =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const layer = layerTest({
+          window: fakeWindow.window,
+          createCount: yield* Ref.make(0),
+          mainWindow: yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none()),
+          primaryPasteEnabled,
+          previewPasskeyBridgeEnabled: true,
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+          const willAttachWebview = fakeWindow.webContentsListeners.get("will-attach-webview");
+          if (!willAttachWebview) {
+            return yield* Effect.die("will-attach-webview listener was not registered");
+          }
+          const webPreferences: Electron.WebPreferences = {};
+          willAttachWebview({ preventDefault: () => {} }, webPreferences, {
+            partition: "persist:t3code-preview-test",
+          });
+
+          assert.deepEqual(webPreferences.additionalArguments, expected);
+        }).pipe(Effect.provide(layer));
+      }),
   );
 
   it.effect("opens safe off-origin renderer navigations in the system browser", () =>
