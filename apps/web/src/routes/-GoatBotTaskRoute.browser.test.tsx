@@ -70,6 +70,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
   const { GoatBotStepsReader } = await import("../components/goatBot/GoatBotStepsProvider");
   // A held draft, open file or edited name: the real surfaces render this hold.
   const { HoldsNavigation } = await import("../lib/navigationHolds");
+  const { createPortal } = await import("react-dom");
   return {
     GoatBotChatView: (props: {
       removal?: string | null;
@@ -83,6 +84,13 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
             Main chat
             <input aria-label="Message" />
             <HoldsNavigation />
+            {/* A chat menu or Home's sheet renders outside the row, as Base UI portals do. */}
+            {createPortal(
+              <div role="dialog" aria-label="Chat popup">
+                <button type="button">In popup</button>
+              </div>,
+              document.body,
+            )}
             {props.removal === "deleted" ? <span>Chat removed</span> : null}
             {props.onRestore ? (
               <button type="button" onClick={props.onRestore}>
@@ -98,19 +106,29 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
 vi.mock("../components/goatBot/useBotManage", () => ({
   useBotManage: () => ({ canManage: true, restore: state.restore }),
 }));
-vi.mock("../components/goatBot/GoatBotTaskPane", () => ({
-  GoatBotTaskPane: ({ narrow, session }: { narrow: boolean; session: object }) => {
-    state.paneSession = session;
-    return (
-      <section>
-        <h2 tabIndex={-1} data-goat-bot-task-heading>
-          Task heading
-        </h2>
-        <div>{narrow ? "Back to Tasks" : "Close"}</div>
-      </section>
-    );
-  },
-}));
+vi.mock("../components/goatBot/GoatBotTaskPane", async () => {
+  const { createPortal } = await import("react-dom");
+  return {
+    GoatBotTaskPane: ({ narrow, session }: { narrow: boolean; session: object }) => {
+      state.paneSession = session;
+      return (
+        <section>
+          <h2 tabIndex={-1} data-goat-bot-task-heading>
+            Task heading
+          </h2>
+          <div>{narrow ? "Back to Tasks" : "Close"}</div>
+          {/* The task pane's own menus portal out of the row too. */}
+          {createPortal(
+            <div role="menu" aria-label="Task menu">
+              <button type="button">In task menu</button>
+            </div>,
+            document.body,
+          )}
+        </section>
+      );
+    },
+  };
+});
 vi.mock("../components/goatBot/useGoatBotSession", () => ({
   useGoatBotSession: (items: unknown, _task: unknown, member: unknown) => {
     state.memberArgs.push(member ?? null);
@@ -236,24 +254,39 @@ it("a chat the task replaces holds no navigation, and holds again once shown", a
   expect(navigationBlocked()).toBe(true);
 });
 
-it("focus in a portalled dialog moves to the task heading when the task replaces the chat", async () => {
+it("focus in a popup the chat portalled out moves to the task heading when the task replaces the chat", async () => {
   state.beside = true;
   await using _window = await windowWidth(1440);
   const container = row(1000);
-  await using screen = await render(
-    <>
-      {taskRoute}
-      <div role="dialog" aria-label="Chat popup">
-        <button type="button">In popup</button>
-      </div>
-    </>,
-    { router: false, container }, // No navigation.
-  );
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
   await expect.element(screen.getByText("Close")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "In popup" }));
   container.style.width = "700px";
   await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
 });
+
+it.each(["dialog", "menu"] as const)(
+  "focus in a %s the chat does not own (the command palette, a sidebar menu) stays when the task replaces the chat",
+  async (role) => {
+    state.beside = true;
+    await using _window = await windowWidth(1440);
+    const container = row(1000);
+    await using screen = await render(
+      <>
+        {taskRoute}
+        <div role={role} aria-label="Elsewhere">
+          <button type="button">Outside the chat</button>
+        </div>
+      </>,
+      { router: false, container }, // No navigation.
+    );
+    await expect.element(screen.getByText("Close")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Outside the chat" }));
+    container.style.width = "700px";
+    await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "Outside the chat" })).toHaveFocus();
+  },
+);
 
 it("the window narrowing past 980px alone also replaces the chat and hands focus to the task", async () => {
   state.beside = true;
@@ -530,3 +563,15 @@ it.each([
     }
   },
 );
+
+it("focus in a menu the task pane portalled out stays there when the task replaces the chat", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "In task menu" }));
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "In task menu" })).toHaveFocus();
+});

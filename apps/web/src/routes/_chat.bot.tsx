@@ -173,7 +173,7 @@ export function GoatBotTaskRoute({
 }) {
   const taskFocus = getTaskPaneFocus();
   const besideChat = useClientSettings((settings) => settings.goatBotTaskThreadsBesideChat);
-  const { beside, rowRef, chatRef } = useGoatBotTaskBeside(besideChat);
+  const { beside, rowRef, onChatFocus } = useGoatBotTaskBeside(besideChat);
   const navigate = useNavigate();
   const legacyAgentRoute = useLegacyGlobalAgentRoute();
   const member = useGoatBotMember();
@@ -184,7 +184,7 @@ export function GoatBotTaskRoute({
       <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1">
         {/* Hidden, not unmounted, while the task replaces it: the composer keeps its draft, and its
             holds pause as they did when it unmounted. */}
-        <div ref={chatRef} hidden={!beside} className="flex min-h-0 min-w-0 flex-1">
+        <div onFocus={onChatFocus} hidden={!beside} className="flex min-h-0 min-w-0 flex-1">
           <NavigationHoldsPaused value={!beside}>
             <GoatBotStepsProvider
               visibleTurnItems={session.visibleTurnItems}

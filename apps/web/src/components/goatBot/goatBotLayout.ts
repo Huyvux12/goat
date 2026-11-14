@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type FocusEvent } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { observeResize } from "~/lib/observeResize";
@@ -49,14 +49,16 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   const [beside, setBeside] = useState(false);
   // What is on screen; the ref callback re-runs when the setting changes and compares against it.
   const shown = useRef(false);
-  const chatRef = useRef<HTMLDivElement>(null);
+  // React focus events follow the component tree, so a popup the chat portals out (Home's sheet,
+  // its model picker) reports here and the task pane's or the command palette's do not.
+  const chatFocus = useRef<EventTarget | null>(null);
+  const onChatFocus = (event: FocusEvent) => {
+    chatFocus.current = event.target;
+  };
   const handOffFocus = useStableCallback((row: HTMLElement) => {
     const active = row.ownerDocument.activeElement;
     const lost = active === null || active === row.ownerDocument.body;
-    // A dialog or menu portalled out of the row (Home's sheet, a chat menu) goes with the chat.
-    const portalled =
-      !lost && !row.contains(active) && active.closest('[role="dialog"], [role="menu"]') !== null;
-    if (!lost && !portalled && !chatRef.current?.contains(active)) return;
+    if (!lost && active !== chatFocus.current) return;
     row.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
   });
   const rowRef = (row: HTMLElement | null) => {
@@ -81,7 +83,7 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
       stopObserving();
     };
   };
-  return { beside, rowRef, chatRef };
+  return { beside, rowRef, onChatFocus };
 }
 
 /** Measures the chat view itself, which a docked Home shares with the conversation. */
