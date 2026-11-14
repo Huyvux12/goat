@@ -179,7 +179,7 @@ import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ProviderSubagentBar } from "./ProviderSubagentBar";
 import { SideChatParentRow } from "./SideChatParentRow";
-import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
+import { ThreadCreationFailedSlot } from "./ThreadCreationFailedSlot";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -1639,17 +1639,11 @@ function ThreadDetailBody(
                     </Animated.View>
                   ) : null}
                   {props.creationState?.kind === "failed" ? (
-                    <Animated.View
-                      className="shrink-0 px-4"
-                      style={{ paddingBottom: composerBottomInset }}
-                      entering={FadeInDown.duration(220)}
-                      exiting={FadeOut.duration(140)}
-                    >
-                      <ThreadCreationFailedCard
-                        reason={props.creationState.reason}
-                        onEditTask={props.creationState.onEditTask}
-                      />
-                    </Animated.View>
+                    <ThreadCreationFailedSlot
+                      reason={props.creationState.reason}
+                      onEditTask={props.creationState.onEditTask}
+                      bottomInset={composerBottomInset}
+                    />
                   ) : null}
                 </ComposerCards>
                 <ComposerCards maxWidth={contentMaxWidth} onHeight={handlePendingCardHeight}>
