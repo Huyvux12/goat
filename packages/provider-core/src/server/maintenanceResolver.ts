@@ -2,7 +2,7 @@ import { resolveMacPortsOwner } from "./maintenanceMacPorts.ts";
 import { runProbe } from "./maintenanceProbe.ts";
 import { environmentCacheKey } from "./maintenanceEnvironmentCache.ts";
 import { quoteShellWord, quoteUpdateExecutable } from "./maintenanceShellQuote.ts";
-import { followVitePlusSystemFirstShim } from "./maintenanceVitePlusShim.ts";
+import { followVitePlusSystemFirstShim, vitePlusLatestVersion } from "./maintenanceVitePlus.ts";
 export type {
   ProviderMaintenanceCapabilities,
   ProviderMaintenanceCommandAction,
@@ -453,14 +453,19 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
       ? manual
       : native;
   if (commandPaths.some(isVitePlusGlobalCommandPath)) {
-    return makeProviderMaintenanceCapabilities({
-      provider: definition.provider,
-      packageName,
-      updateExecutable: "vp",
-      updateArgs: ["i", "-g", packageName],
-      updateLockKey: "vite-plus-global",
-      env: context.env,
-    });
+    const latest = yield* vitePlusLatestVersion(packageName, context);
+    return {
+      ...makeProviderMaintenanceCapabilities({
+        provider: definition.provider,
+        packageName,
+        updateExecutable: "vp",
+        updateArgs: ["i", "-g", packageName],
+        updateLockKey: "vite-plus-global",
+        env: context.env,
+        lookupLatestVersion: latest.lookup,
+      }),
+      latestVersionCacheKey: latest.cacheKey,
+    };
   }
   if (commandPaths.some(isBunGlobalCommandPath)) {
     const services = yield* Effect.context<ProviderMaintenanceResolverServices>();
