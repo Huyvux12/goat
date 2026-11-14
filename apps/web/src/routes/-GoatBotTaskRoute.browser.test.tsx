@@ -1,7 +1,7 @@
 import { forgetNewBotEnvironment, newBotSlot, startNewBot } from "@goat/client-runtime/goatBot";
 import { BotId, ChannelTaskId, EnvironmentId, OrchestrationV2TurnItemJson } from "@goat/contracts";
 import * as Schema from "effect/Schema";
-import { Profiler } from "react";
+import { Profiler, cloneElement } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "../../test/render";
@@ -225,6 +225,26 @@ it("the window narrowing past 980px alone also replaces the chat and hands focus
   await page.viewport(979, 900);
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+});
+
+it("turning the beside setting off while the task sits beside replaces the chat, and on brings it back", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  // Navigation is not exercised here.
+  await using screen = await render(taskRoute, { router: false, container: row(1000) });
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.click(screen.getByRole("textbox", { name: "Message" }));
+  state.beside = false;
+  // A fresh element: the setting is read through a mock, not a subscription.
+  await screen.rerender(cloneElement(taskRoute));
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await expect.element(screen.getByText("Main chat")).not.toBeVisible();
+  await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+  state.beside = true;
+  // A fresh element: the setting is read through a mock, not a subscription.
+  await screen.rerender(cloneElement(taskRoute));
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await expect.element(screen.getByText("Main chat")).toBeVisible();
 });
 
 it("performance invariant: sweeping the window from 1440 to 960 commits the route once per threshold at most", async () => {

@@ -47,6 +47,8 @@ export function goatBotHomePresentation(layout: {
  */
 export function useGoatBotTaskBeside(besideSetting: boolean) {
   const [beside, setBeside] = useState(false);
+  // What is on screen; the ref callback re-runs when the setting changes and compares against it.
+  const shown = useRef(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const handOffFocus = useStableCallback((row: HTMLElement) => {
     const active = row.ownerDocument.activeElement;
@@ -57,16 +59,15 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   const rowRef = (row: HTMLElement | null) => {
     if (row === null) return;
     const windowQuery = window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
-    let shown = false;
     const measure = () => {
       const next = goatBotTaskBeside({
         windowWide: !windowQuery.matches,
         rowWidth: row.getBoundingClientRect().width,
         besideSetting,
       });
-      if (next === shown) return;
+      if (next === shown.current) return;
       if (!next) handOffFocus(row);
-      shown = next;
+      shown.current = next;
       setBeside(next);
     };
     measure();
