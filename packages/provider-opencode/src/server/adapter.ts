@@ -97,6 +97,8 @@ import {
   subagentThreadTitle,
 } from "@goat/provider-core/server/subagentProjection";
 import {
+  toolModel,
+  taskSessionId,
   openCodeToolStatus,
   openCodeToolOutputWithImages,
   openCodeToolStateResult,
@@ -530,29 +532,6 @@ function toolCompletedAt(part: ToolPart, now: DateTime.Utc): DateTime.Utc | null
   return part.state.status === "completed" || part.state.status === "error"
     ? dateTimeFromEpoch(part.state.time.end, now)
     : null;
-}
-
-function toolModel(part: ToolPart): string | null {
-  const metadata =
-    part.state.status === "running" ||
-    part.state.status === "completed" ||
-    part.state.status === "error"
-      ? part.state.metadata
-      : undefined;
-  const model = recordValue(metadata, "model");
-  const providerId = recordString(model, "providerID", "providerId");
-  const modelId = recordString(model, "modelID", "modelId", "id");
-  return providerId !== undefined && modelId !== undefined ? `${providerId}/${modelId}` : null;
-}
-
-function taskSessionId(part: ToolPart): string | null {
-  const metadata =
-    part.state.status === "running" ||
-    part.state.status === "completed" ||
-    part.state.status === "error"
-      ? part.state.metadata
-      : undefined;
-  return recordString(metadata, "sessionId", "sessionID") ?? null;
 }
 
 function makeProviderThread(input: {
