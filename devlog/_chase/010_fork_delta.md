@@ -194,7 +194,7 @@ G13 `goat-copy`, G14 `launch-watch`.
 
 ### `resizable-width` 줄어든 패널의 드래그
 
-- 커밋: #3343
+- 커밋: #3349 (이슈 #3343)
 - 경로: `apps/web/src/hooks/useResizableWidth.ts`, `apps/web/src/hooks/useResizableWidth.browser.test.tsx`
 - 정책: 클릭만 하면 저장하지 않는 부분은 upstream 9ff0fac0f48을 손으로 옮긴 것이다(응답형 기본값과 `setWidth`는 옮기지 않았다). GOAT 차이는 두 가지다. 드래그는 화면에 보이는 폭(`min(저장값, host 폭)`)에서 시작하고, 놓을 때는 화면에 보이는 폭을 저장한다. 봇 작업 패널은 `min(var(--resizable-width), calc(100% - 400px))`로 줄어들어 저장값보다 좁게 보일 수 있기 때문이다. 저장할 폭은 `cleanup`에서 `transition-property`를 지우기 전에 읽는다(지운 뒤 읽으면 미리보기 패널의 폭 애니메이션 시작점을 읽는다). upstream이 이 hook을 바꾸면 받고 `renderedWidth`와 두 읽기만 다시 얹는다.
 
