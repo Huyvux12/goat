@@ -2,6 +2,7 @@ import {
   collectLimitAccounts,
   collectLimitPools,
   type LimitAccount,
+  type LimitPoolWindow,
   type LimitPresentations,
 } from "@goat/shared/usageLimits";
 
@@ -48,6 +49,9 @@ export function createWidgetRefresher<Id>(refresh: (id: Id) => Promise<unknown>)
 const observedAt = (account: LimitAccount) =>
   Date.parse(account.observedAt ?? account.limits.checkedAt);
 
+const isUpcoming = (reset: LimitPoolWindow["resets"][number]) =>
+  reset.at > observedAt(reset.member.account);
+
 function subscriptionUsageProps(
   accounts: readonly LimitAccount[],
   now: number,
@@ -86,7 +90,9 @@ function subscriptionUsageProps(
         );
         const expiresAt = Math.min(
           checkedAt + SNAPSHOT_MAX_AGE,
-          ...pool.windows.flatMap((window) => window.resets.map((reset) => reset.at)),
+          ...pool.windows.flatMap((window) =>
+            window.resets.filter(isUpcoming).map((reset) => reset.at),
+          ),
         );
         const fresh = Number.isFinite(expiresAt) && expiresAt > now;
         const sortedWindows = [...pool.windows].sort(
@@ -117,7 +123,9 @@ function subscriptionUsageProps(
                 label: window.label,
                 remaining: Math.round(window.remainingPercent),
                 reset: window.resets[0]
-                  ? `Next reset ${new Date(window.resets[0].at).toLocaleString(undefined, {
+                  ? `${isUpcoming(window.resets[0]) ? "Next reset" : "Reset"} ${new Date(
+                      window.resets[0].at,
+                    ).toLocaleString(undefined, {
                       month: "short",
                       day: "numeric",
                       hour: "numeric",
