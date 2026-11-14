@@ -4,6 +4,7 @@ import { OpenCodeSettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -510,7 +511,7 @@ export const OpenCodeDriver: ProviderDriver<
       }).pipe(Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server)),
     );
 
-    const checkUsageLimits = readOpenCodeGoUsageLimits({
+    const legacyUsageLimits = readOpenCodeGoUsageLimits({
       enabled: effectiveConfig.enabled,
       serverUrl: effectiveConfig.serverUrl,
       environment: processEnv,
@@ -519,6 +520,30 @@ export const OpenCodeDriver: ProviderDriver<
       Effect.provideService(Path.Path, pathService),
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.provideService(Crypto.Crypto, crypto),
+    );
+    let unsupportedUsageVersion: string | undefined;
+    const checkUsageLimits = Effect.gen(function* () {
+      if (!effectiveConfig.enabled) return yield* legacyUsageLimits;
+      const runtime = yield* runtimeProbe.get;
+      if (runtime.generation === "v1" || runtime.version === unsupportedUsageVersion)
+        return yield* legacyUsageLimits;
+      const limits = yield* openCode2ProbeServer.withConnection((connection) =>
+        connection.usageLimits(host.paths.cwd),
+      );
+      if (limits === undefined) unsupportedUsageVersion = runtime.version;
+      return limits ?? (yield* legacyUsageLimits);
+    }).pipe(
+      Effect.timeout("10 seconds"),
+      Effect.catch(() =>
+        Effect.map(DateTime.now, (now) => ({
+          checkedAt: DateTime.formatIso(now),
+          windows: [],
+          unavailable: {
+            reason: "probeFailed" as const,
+            message: "OpenCode could not read workspace usage.",
+          },
+        })),
+      ),
     );
     const checkProvider = Effect.all(
       {
