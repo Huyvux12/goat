@@ -286,7 +286,7 @@
         "packages/contracts/src/channelBotArtifacts.ts",
         "apps/server/src/channels/channelTaskRetry.ts",
         "apps/server/src/channels/channelBotLedger.ts",
-        "apps/server/src/persistence/Migrations/135_ChannelBotIds.ts",
+        "apps/server/src/persistence/Migrations/145_ChannelBotIds.ts",
         "packages/client-runtime/src/goatBot/",
         "packages/client-runtime/src/goatBot/home.ts",
         "apps/web/src/components/goatBot/",
