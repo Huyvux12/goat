@@ -81,6 +81,10 @@ const usageHarness = (input: {
       | undefined;
     // While set, every check stops at its catalog read: it ran its probe and never publishes.
     let abandoning = false;
+    // When armed, the next check waits at its first step, before it has read anything.
+    let startGate:
+      | { reached: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
+      | undefined;
     const instance = yield* CodexDriver.create({
       instanceId,
       displayName: "Usage home test",
@@ -109,6 +113,16 @@ const usageHarness = (input: {
       Effect.provideService(HostProcess.HomeDirectory, input.homeDirectory ?? "/fixture"),
       Effect.provideService(ModelCatalog.ModelCatalog, {
         ...catalog,
+        refreshInBackground: Effect.suspend(() => {
+          const gate = startGate;
+          startGate = undefined;
+          return gate === undefined
+            ? catalog.refreshInBackground
+            : Deferred.succeed(gate.reached, undefined).pipe(
+                Effect.andThen(Deferred.await(gate.release)),
+                Effect.andThen(catalog.refreshInBackground),
+              );
+        }),
         current: (kind) =>
           Effect.suspend(() => {
             if (abandoning) return Effect.interrupt;
@@ -184,11 +198,25 @@ const usageHarness = (input: {
       catalogGate = gate;
       return gate;
     });
+    /** Holds the next check at its first step, right after the managed provider took its baseline. */
+    const holdNextCheckStart = Effect.gen(function* () {
+      const gate = { reached: yield* Deferred.make<void>(), release: yield* Deferred.make<void>() };
+      startGate = gate;
+      return gate;
+    });
     const abandonChecks = (on: boolean) =>
       Effect.sync(() => {
         abandoning = on;
       });
-    return { open, percents, check, checkedPercents, holdNextCheck, abandonChecks };
+    return {
+      open,
+      percents,
+      check,
+      checkedPercents,
+      holdNextCheck,
+      holdNextCheckStart,
+      abandonChecks,
+    };
   });
 
 it.layer(layerTest)("Codex usage and the session's home", (it) => {
@@ -311,6 +339,79 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
         yield* Deferred.succeed(gate.release, undefined);
         // b's check read no usage, so nothing from a's sessions may be left on b's snapshot.
         expect(yield* Fiber.join(checking)).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+  it.effect(
+    "a report from the old home before a check for a new home starts is not kept by that check",
+    () =>
+      Effect.gen(function* () {
+        const host: NodeJS.ProcessEnv = { HOME: "/fixture", CODEX_HOME: "/fixture/a" };
+        const { open, percents, check, checkedPercents, holdNextCheckStart } = yield* usageHarness({
+          host,
+          usage: { a: 10, a2: 20 },
+        });
+        yield* check;
+        yield* yield* open("a");
+        expect(yield* percents).toContain(10);
+        const reportA2 = yield* open("a2");
+        // Opening a session starts a check under a; this one waits for it, so the next is b's.
+        yield* check;
+        host.CODEX_HOME = "/fixture/b";
+        const gate = yield* holdNextCheckStart;
+        const checking = yield* checkedPercents.pipe(Effect.forkChild);
+        yield* Deferred.await(gate.reached);
+        // The managed provider has taken its usage baseline; b's check has not done anything yet.
+        yield* reportA2;
+        yield* Deferred.succeed(gate.release, undefined);
+        expect(yield* Fiber.join(checking)).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+  it.effect(
+    "a check for another home that never publishes does not turn away the shown home's reports",
+    () =>
+      Effect.gen(function* () {
+        const host: NodeJS.ProcessEnv = { HOME: "/fixture", CODEX_HOME: "/fixture/a" };
+        const { open, percents, check, abandonChecks } = yield* usageHarness({
+          host,
+          usage: { a: 30 },
+        });
+        yield* check;
+        const report = yield* open("a");
+        host.CODEX_HOME = "/fixture/b";
+        // Every check now stops after its probe, so nothing publishes from here on.
+        yield* abandonChecks(true);
+        const abandoned = yield* Fiber.await(yield* check.pipe(Effect.forkChild));
+        expect(Exit.hasInterrupts(abandoned)).toBe(true);
+        host.CODEX_HOME = "/fixture/a";
+        yield* report;
+        expect(yield* percents).toContain(30);
+      }).pipe(Effect.scoped),
+  );
+  // The fixture uses a symlink.
+  it.effect.skipIf(windowsHost)(
+    "a report through a link to the home being checked lands while that check runs",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        yield* fs.makeDirectory(`${root}/home`);
+        yield* fs.symlink(`${root}/home`, `${root}/link`);
+        const host: NodeJS.ProcessEnv = { HOME: root, CODEX_HOME: `${root}/link` };
+        const { open, percents, check, holdNextCheckStart } = yield* usageHarness({
+          host,
+          usage: { linked: 30 },
+          homeDirectory: root,
+        });
+        yield* check;
+        const report = yield* open("linked");
+        yield* check;
+        const gate = yield* holdNextCheckStart;
+        const checking = yield* check.pipe(Effect.forkChild);
+        yield* Deferred.await(gate.reached);
+        yield* report;
+        expect(yield* percents).toContain(30);
+        yield* Deferred.succeed(gate.release, undefined);
+        yield* Fiber.join(checking);
       }).pipe(Effect.scoped),
   );
   it.effect("a check counts for usage only once its snapshot is shown", () =>

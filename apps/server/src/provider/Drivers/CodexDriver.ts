@@ -283,8 +283,6 @@ export const CodexDriver: ProviderDriver<
     };
     const homeShownBy = (checkedAt: string) =>
       checkHomes.get(checkedAt) ?? (checkedAt === initialCheckedAt ? undefined : UNESTABLISHED);
-    // Checks running now, by the home they started under: its path until its identity is known.
-    const runningChecks = new Map<object, string>();
     const publishedCheckedAt: Effect.Effect<string> = Effect.suspend(
       () => snapshot.getSnapshot,
     ).pipe(Effect.map((shown) => shown.checkedAt));
@@ -295,14 +293,7 @@ export const CodexDriver: ProviderDriver<
         snapshot.applyUsageLimits(update, {
           appliesTo: (shown) => {
             const home = homeShownBy(shown.checkedAt);
-            if (home !== undefined && home !== identity) return false;
-            // A check for another home, running or not yet shown, publishes next; one that reads no
-            // usage would keep a report applied meanwhile, so another home's report waits for it.
-            for (const running of runningChecks.values()) if (running !== identity) return false;
-            for (const [checkedAt, checked] of checkHomes) {
-              if (checkedAt > shown.checkedAt && checked !== identity) return false;
-            }
-            return true;
+            return home === undefined || home === identity;
           },
         });
     const stampIdentity = withInstanceIdentity({
@@ -424,54 +415,44 @@ export const CodexDriver: ProviderDriver<
     // manifest, so a slow or hung fetch never delays the provider check. Each check's checkedAt
     // is moved past the previous one so it names that check's snapshot alone.
     let lastCheckAt = 0;
-    const checkUnder = (merged: NodeJS.ProcessEnv, token: object) =>
-      modelCatalog.refreshInBackground.pipe(
-        Effect.andThen(
-          Effect.zipWith(
-            Effect.gen(function* () {
-              const env = withExecutionHome(merged);
-              const home = executionHome(env);
-              const before = yield* homeIdentity(home);
-              runningChecks.set(token, before);
-              // A home the host names is the one the sign-in hint shows, as for a pinned home.
-              const named = pinnedHome !== undefined || Boolean(merged.CODEX_HOME?.trim());
-              const status = yield* checkCodexProviderStatus(
-                named ? { ...effectiveConfig, homePath: home } : effectiveConfig,
-                undefined,
-                env,
-              ).pipe(provideHomeRoute);
-              const identity = before === (yield* homeIdentity(home)) ? before : UNESTABLISHED;
-              const shownAt = yield* publishedCheckedAt;
-              const shown = homeShownBy(shownAt);
-              lastCheckAt = Math.max(Date.parse(status.checkedAt), lastCheckAt + 1);
-              const checkedAt = DateTime.formatIso(DateTime.makeUnsafe(lastCheckAt));
-              rememberCheckHome(checkedAt, identity, shownAt);
-              return withoutOtherHomeUsage(
-                { ...status, checkedAt },
-                identity === UNESTABLISHED
-                  ? "unknown"
-                  : shown !== undefined && shown !== identity
-                    ? "other"
-                    : "same",
-                DateTime.formatIso(yield* DateTime.now),
-              );
-            }),
-            currentCatalog,
-            (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
+    const checkProvider = modelCatalog.refreshInBackground.pipe(
+      Effect.andThen(
+        Effect.zipWith(
+          mergedEnvironment.pipe(
+            Effect.flatMap((merged) =>
+              Effect.gen(function* () {
+                const env = withExecutionHome(merged);
+                const home = executionHome(env);
+                const before = yield* homeIdentity(home);
+                // A home the host names is the one the sign-in hint shows, as for a pinned home.
+                const named = pinnedHome !== undefined || Boolean(merged.CODEX_HOME?.trim());
+                const status = yield* checkCodexProviderStatus(
+                  named ? { ...effectiveConfig, homePath: home } : effectiveConfig,
+                  undefined,
+                  env,
+                ).pipe(provideHomeRoute);
+                const identity = before === (yield* homeIdentity(home)) ? before : UNESTABLISHED;
+                const shownAt = yield* publishedCheckedAt;
+                const shown = homeShownBy(shownAt);
+                lastCheckAt = Math.max(Date.parse(status.checkedAt), lastCheckAt + 1);
+                const checkedAt = DateTime.formatIso(DateTime.makeUnsafe(lastCheckAt));
+                rememberCheckHome(checkedAt, identity, shownAt);
+                return withoutOtherHomeUsage(
+                  { ...status, checkedAt },
+                  identity === UNESTABLISHED
+                    ? "unknown"
+                    : shown !== undefined && shown !== identity
+                      ? "other"
+                      : "same",
+                  DateTime.formatIso(yield* DateTime.now),
+                );
+              }),
+            ),
           ),
+          currentCatalog,
+          (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
         ),
-      );
-    // A check is registered from its start, so no report lands unjudged while it runs.
-    const checkProvider = Effect.suspend(() => {
-      const token = {};
-      return mergedEnvironment.pipe(
-        Effect.tap((merged) =>
-          Effect.sync(() => runningChecks.set(token, executionHome(withExecutionHome(merged)))),
-        ),
-        Effect.flatMap((merged) => checkUnder(merged, token)),
-        Effect.ensuring(Effect.sync(() => runningChecks.delete(token))),
-      );
-    }).pipe(
+      ),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, pathService),
@@ -497,6 +478,14 @@ export const CodexDriver: ProviderDriver<
           ),
         ),
       checkProvider,
+      // Every report kept since the shown snapshot was published was judged against its home, so
+      // what a check that read no usage keeps must come from that same home.
+      keepsReportedUsage: (published, probed) => {
+        const from = homeShownBy(published.checkedAt);
+        return (
+          from !== undefined && from !== UNESTABLISHED && from === checkHomes.get(probed.checkedAt)
+        );
+      },
       enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
         resolveMaintenance().pipe(
           Effect.flatMap((maintenanceCapabilities) =>

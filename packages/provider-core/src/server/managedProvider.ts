@@ -64,6 +64,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   readonly refreshInterval?: Duration.Input;
   readonly refreshOnInterval?: boolean | ((snapshot: ServerProvider) => boolean);
   readonly checkProviderOnSettingsChange?: (previous: Settings, next: Settings) => boolean;
+  /**
+   * Asked, inside the step that commits a check which read no usage, whether the usage reported
+   * while it ran may stay on its snapshot. Synchronous and pure; omitted, the usage stays.
+   */
+  readonly keepsReportedUsage?: (published: ServerProvider, probed: ServerProvider) => boolean;
 }): Effect.fn.Return<
   ManagedServerProvider,
   ServerSettingsError,
@@ -208,7 +213,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         const usageLimits = switchedAccount
           ? probedSnapshot.usageLimits
           : probedSnapshot.usageLimits === undefined &&
-              state.snapshot.usageLimits !== usageBeforeProbe
+              state.snapshot.usageLimits !== usageBeforeProbe &&
+              input.keepsReportedUsage?.(state.snapshot, probedSnapshot) !== false
             ? state.snapshot.usageLimits
             : resolveUsageLimitsAfterProbe({
                 published: state.snapshot.usageLimits,
