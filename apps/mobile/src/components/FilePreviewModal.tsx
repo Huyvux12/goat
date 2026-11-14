@@ -42,6 +42,14 @@ export type {
 
 const isAssetNotFoundError = Schema.is(AssetWorkspaceAssetNotFoundError);
 
+function remotePreviewFailureMessage(error: unknown): string {
+  if (!isAssetNotFoundError(error)) {
+    return "Reconnect to this environment and try again. The file may have been moved or deleted.";
+  }
+  const path = error.checkedPath ?? ("path" in error.resource ? error.resource.path : undefined);
+  return path ? `The file was not found at ${path}.` : error.message;
+}
+
 function PreviewItemResolver(props: {
   readonly source: FilePreviewItem;
   readonly onResolved: (source: ResolvedFilePreviewSource) => void;
@@ -76,12 +84,7 @@ function PreviewItemResolver(props: {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        onResolutionError(
-          error,
-          isAssetNotFoundError(error)
-            ? `The file was not found at ${error.checkedPath ?? ("path" in error.resource ? error.resource.path : "the requested path")}.`
-            : "Reconnect to this environment and try again. The file may have been moved or deleted.",
-        );
+        onResolutionError(error, remotePreviewFailureMessage(error));
       });
     return () => {
       cancelled = true;
