@@ -10,6 +10,7 @@ import type {
   PendingRequest,
 } from "./adapterState.ts";
 export type { ActiveTurn } from "./adapterState.ts";
+import { makeNewThreadState } from "./adapterState.ts";
 import { recordString } from "../records.ts";
 import { OpenCode2ProviderCapabilities } from "./capabilities.ts";
 import {
@@ -276,41 +277,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state.unsettledStarted = busy.has(state.sessionId);
     };
 
-    const newThreadState = (
-      sessionId: string,
-      providerThread: OrchestrationV2ProviderThread,
-      directory: string,
-      subagent: ThreadState["subagent"],
-    ): ThreadState => ({
-      sessionId,
-      providerThread,
-      imageJobs: new Map(),
-      goalRevision: 0,
-      goalFresh: false,
-      goalRefreshing: false,
-      providerTurns: new Map(),
-      active: undefined,
-      model: undefined,
-      unsettled: false,
-      unsettledStarted: false,
-      starts: 0,
-      directory,
-      agent: "build",
-      title: undefined,
-      rules: undefined,
-      policy: input.runtimePolicy,
-      grants: [],
-      calls: new Map(),
-      subagent,
-      wakes: [],
-      reports: new Map(),
-      stoppedChildren: new Set(),
-      strandedSteers: new Set(),
-      mcp: undefined,
-      cua: undefined,
-      instructions: undefined,
-      memoryDigest: undefined,
-    });
+    const newThreadState = makeNewThreadState(input);
 
     const rootOf = (state: ThreadState): ThreadState => {
       let current = state;
