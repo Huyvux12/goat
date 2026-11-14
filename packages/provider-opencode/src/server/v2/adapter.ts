@@ -160,6 +160,7 @@ const MEMORY_INSTRUCTIONS_KEY = "goat_memory";
 export const OPENCODE_2_STILL_STOPPING =
   "OpenCode is still stopping the previous turn. Send the message again in a moment.";
 const REQUEST_REPLY_TIMEOUT = "10 seconds";
+const MCP_TOOL_RELOAD_SETTLE = "250 millis";
 
 const deliver = <E>(answer: Effect.Effect<void, E>) =>
   answer.pipe(
@@ -3052,9 +3053,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             ),
           );
         if (mcpAvailable) state.mcp = wanted;
-        // Older OpenCode versions load tools asynchronously after adding a server.
+        // Before 2.2.6, OpenCode loads a new server's tools 100 ms after it connects, and a prompt sent sooner lacks them.
         if (mcpAvailable && fresh && compareSemverVersions(connection.version, "2.2.6") < 0) {
-          yield* Effect.sleep("250 millis");
+          yield* Effect.sleep(MCP_TOOL_RELOAD_SETTLE);
         }
       }
       // The managed Cua Driver follows the same per-directory registration; a
