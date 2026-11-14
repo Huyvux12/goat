@@ -65,8 +65,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   readonly refreshOnInterval?: boolean | ((snapshot: ServerProvider) => boolean);
   readonly checkProviderOnSettingsChange?: (previous: Settings, next: Settings) => boolean;
   /**
-   * Asked, inside the step that commits a check which read no usage, whether the usage reported
-   * while it ran may stay on its snapshot. Synchronous and pure; omitted, the usage stays.
+   * Asked, inside the step that commits a check, whether usage reported while it ran belongs with
+   * it. When it does not, the check resolves against the usage from before it ran. Synchronous and
+   * pure; omitted, reported usage always stays.
    */
   readonly keepsReportedUsage?: (published: ServerProvider, probed: ServerProvider) => boolean;
 }): Effect.fn.Return<
@@ -210,16 +211,17 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
           differs(probedSnapshot.auth.email?.toLowerCase(), previous.email?.toLowerCase()) ||
           (probedSnapshot.auth.workspaceId !== undefined &&
             probedSnapshot.auth.workspaceId !== previous.workspaceId);
+        const published =
+          switchedAccount ||
+          state.snapshot.usageLimits === usageBeforeProbe ||
+          input.keepsReportedUsage?.(state.snapshot, probedSnapshot) !== false
+            ? state.snapshot.usageLimits
+            : usageBeforeProbe;
         const usageLimits = switchedAccount
           ? probedSnapshot.usageLimits
-          : probedSnapshot.usageLimits === undefined &&
-              state.snapshot.usageLimits !== usageBeforeProbe &&
-              input.keepsReportedUsage?.(state.snapshot, probedSnapshot) !== false
-            ? state.snapshot.usageLimits
-            : resolveUsageLimitsAfterProbe({
-                published: state.snapshot.usageLimits,
-                probed: probedSnapshot.usageLimits,
-              });
+          : probedSnapshot.usageLimits === undefined && published !== usageBeforeProbe
+            ? published
+            : resolveUsageLimitsAfterProbe({ published, probed: probedSnapshot.usageLimits });
         const workspaceId =
           usageLimits === probedSnapshot.usageLimits ? undefined : state.snapshot.auth.workspaceId;
         const usageAuthLabel =

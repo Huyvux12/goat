@@ -1,6 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
 import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId, ProviderSessionId, ThreadId } from "@goat/contracts";
 import * as HostProcess from "@goat/shared/HostProcess";
+import { writeFakeCli } from "@goat/provider-testing/fakeCli";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexReplay from "effect-codex-app-server/replay";
 import * as Context from "effect/Context";
@@ -11,6 +14,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ModelCatalog from "@goat/provider-core/server/ModelCatalog";
 import * as ProviderAdapter from "@goat/provider-core/server/ProviderAdapter";
@@ -413,6 +417,57 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
         yield* Deferred.succeed(gate.release, undefined);
         yield* Fiber.join(checking);
       }).pipe(Effect.scoped),
+  );
+  it.effect("a new home's own reading is not overridden by a later report from the old home", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const bin = NodePath.join(root, "bin");
+      // A Codex app-server whose usage read succeeds, at 5%.
+      writeFakeCli({
+        directory: bin,
+        name: "codex",
+        source: [
+          'import readline from "node:readline";',
+          'readline.createInterface({ input: process.stdin }).on("line", (line) => {',
+          "  const { id, method } = JSON.parse(line);",
+          "  if (id === undefined) return;",
+          "  const result =",
+          '    method === "initialize" ? { userAgent: "codex/0.156.1", codexHome: process.env.CODEX_HOME, platformFamily: "unix", platformOs: "macos" }',
+          '    : method === "account/read" ? { account: null, requiresOpenaiAuth: false }',
+          '    : method === "account/rateLimits/read" ? { rateLimits: { limitId: "codex", primary: { usedPercent: 5, resetsAt: 2000100000, windowDurationMins: 300 } } }',
+          '    : method === "config/read" ? { config: {}, origins: {} }',
+          '    : method === "model/list" ? { data: [], nextCursor: null }',
+          '    : method === "skills/list" ? { data: [] } : undefined;',
+          '  process.stdout.write(JSON.stringify(result === undefined ? { id, error: { code: -32601, message: "unsupported" } } : { id, result }) + "\\n");',
+          "});",
+        ].join("\n"),
+      });
+      const host: NodeJS.ProcessEnv = {
+        HOME: "/fixture",
+        CODEX_HOME: "/fixture/a",
+        PATH: [bin, ...(process.env.PATH ?? "").split(NodePath.delimiter)].join(NodePath.delimiter),
+      };
+      const { open, percents, check, checkedPercents, holdNextCheck } = yield* usageHarness({
+        host,
+        usage: { a: 10, a2: 20 },
+      });
+      yield* check;
+      yield* yield* open("a");
+      expect(yield* percents).toContain(10);
+      const reportA2 = yield* open("a2");
+      // Opening a session starts a check under a; this one waits for it, so the next is b's.
+      yield* check;
+      host.CODEX_HOME = "/fixture/b";
+      const gate = yield* holdNextCheck;
+      const checking = yield* checkedPercents.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.reached);
+      // b's reading is taken; a's session reports later, so its windows are newer.
+      yield* TestClock.adjust("1 second");
+      yield* reportA2;
+      yield* Deferred.succeed(gate.release, undefined);
+      expect(yield* Fiber.join(checking)).toEqual([5]);
+    }).pipe(Effect.scoped),
   );
   it.effect("a check counts for usage only once its snapshot is shown", () =>
     Effect.gen(function* () {
