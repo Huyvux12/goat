@@ -10,6 +10,12 @@ const WidthSchema = Schema.Finite;
 /** The host must size itself from this custom property. */
 export const RESIZABLE_WIDTH_PROPERTY = "--resizable-width";
 
+// GOAT: a host its container caps (max-width, min()) shows less than the stored width.
+function renderedWidth(host: HTMLElement | null): number | null {
+  const width = host?.getBoundingClientRect().width ?? 0;
+  return width > 0 ? Math.round(width) : null;
+}
+
 export interface UseResizableWidthOptions {
   readonly storageKey: string;
   readonly defaultWidth: number;
@@ -66,7 +72,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     // The drag commits to the key and width it started from, even if the panel
     // switches keys before the pointer is released.
     const startStorageKey = storageKey;
-    const startWidth = clampedWidth;
+    const startWidth = Math.min(clampedWidth, renderedWidth(host) ?? clampedWidth);
     return {
       width: startWidth,
       edge,

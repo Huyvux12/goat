@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { act, render } from "../../test/render";
@@ -14,6 +15,31 @@ function Panel({ defaultWidth }: { defaultWidth: number }) {
     edge: "left",
   });
   return <div role="separator" style={{ width: 8, height: 40 }} {...handlers} />;
+}
+
+/** Sized from the hook's width like a real host, but never wider than `cap`. */
+function CappedPanel({ cap }: { cap: number }) {
+  const { width, handlers } = useResizableWidth({
+    storageKey: STORAGE_KEY,
+    defaultWidth: 240,
+    minWidth: 160,
+    maxWidth: 900,
+    edge: "left",
+  });
+  return (
+    <div
+      style={
+        {
+          [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
+          width: `min(var(${RESIZABLE_WIDTH_PROPERTY}), ${cap}px)`,
+          // Hosts animate their width; the saved width must not be read mid-animation.
+          transition: "width 10s linear",
+        } as CSSProperties
+      }
+    >
+      <div role="separator" style={{ width: 8, height: 40 }} {...handlers} />
+    </div>
+  );
 }
 
 function storedWidth(value: string | null): Disposable {
@@ -60,5 +86,14 @@ describe("useResizableWidth", () => {
 
     await handle.drag(500, 450);
     expect(localStorage.getItem(STORAGE_KEY)).toBe("290");
+  });
+
+  it("a drag on a pane its container caps starts from the width on screen", async () => {
+    using _stored = storedWidth("600");
+    // This hook only needs browser storage and React; no navigation is involved.
+    await using screen = await render(<CappedPanel cap={300} />, { router: false });
+    using handle = dragHandle(screen.container);
+    await handle.drag(500, 550);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("250");
   });
 });
