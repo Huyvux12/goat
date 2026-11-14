@@ -15,6 +15,8 @@ import { GOAT_MIGRATION_NAMES, reconcileGoatMigrationIds } from "./reconcileGoat
 const UPSTREAM_80S: ReadonlyArray<readonly [number, string]> = [
   [80, "ScheduledTaskThreadMode"],
   [81, "ProjectionMessageSearchText"],
+  [84, "LastExecutedRunIndex"],
+  [85, "TurnItemCounts"],
   [87, "ProjectionProjectsCustomTitle"],
 ];
 
