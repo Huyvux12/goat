@@ -1,7 +1,6 @@
 import { isPreviewRefreshShortcut } from "./previewRefresh.ts";
 import { admitAgentPointer, pointerEvent, type AgentPointer } from "./CursorStateOrdering.ts";
 import * as PreviewDownloadCopy from "./downloadCopy.ts";
-import * as NodeZlib from "node:zlib";
 import {
   DesktopPreviewRecordingInputSchema,
   DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
@@ -89,6 +88,7 @@ import {
 import { isPreviewAnnotationPayload } from "./PickedElementPayload.ts";
 import { DEFAULT_ANNOTATION_THEME } from "./AnnotationTheme.ts";
 import { buildPreviewPictureInPictureDataUrl } from "./PictureInPicturePage.ts";
+import { fingerprintCapturedFrame } from "./FrameFingerprint.ts";
 import { captureFavicon, safeHttpOrigin, selectFaviconCandidates } from "./FaviconCapture.ts";
 import { DEFAULT_RECORDING_INPUT_OPTIONS, type RecordingInputOptions } from "./RecordingInput.ts";
 import { createPreviewPopupLifecycle, isBlankPopupUrl, popupWebOrigin } from "./PopupLifecycle.ts";
@@ -191,23 +191,6 @@ interface PreviewOperationContext {
   readonly webContentsId?: number;
   readonly artifactPath?: string;
 }
-
-// An invalid color space skips costly P3-to-sRGB conversion; fingerprints need no color accuracy.
-const FINGERPRINT_BITMAP_OPTIONS: Electron.ToBitmapOptions = {
-  colorSpace: { primaries: "invalid", transfer: "invalid", matrix: "invalid", range: "invalid" },
-};
-
-/** Empty readPixels results have no fingerprint and must be treated as changed frames. */
-const fingerprintCapturedFrame = (image: Electron.NativeImage, size: Electron.Size) => {
-  let bitmap: Buffer;
-  try {
-    bitmap = image.toBitmap(FINGERPRINT_BITMAP_OPTIONS);
-  } catch {
-    return null;
-  }
-  if (bitmap.byteLength === 0) return null;
-  return `${size.width}x${size.height}:${NodeZlib.crc32(bitmap)}`;
-};
 
 const findZoomStep = (current: number): number => {
   const index = ZOOM_LEVELS.findIndex(
