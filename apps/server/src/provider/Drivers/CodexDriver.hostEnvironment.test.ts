@@ -11,6 +11,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { CodexDriver } from "./CodexDriver.ts";
 import { layerTest } from "./CodexDriver.testkit.ts";
+import { ObservedOperation, observing } from "./CodexObservedOperation.testkit.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
@@ -22,15 +23,27 @@ it.layer(layerTest)("CodexDriver host environment", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const paths: Array<string | undefined> = [];
-        const homes: Array<string | undefined> = [];
-        const observedSpawner = ChildProcessSpawner.make((command) => {
-          if (ChildProcess.isStandardCommand(command)) {
-            paths.push(command.options.env?.PATH);
-            homes.push(command.options.env?.CODEX_HOME);
-          }
-          return spawner.spawn(command);
-        });
+        // Both instances also launch Codex from checks they start themselves; only the launches of
+        // the operation under test count.
+        const launches: Array<{
+          readonly operation: string | undefined;
+          readonly path: string | undefined;
+          readonly home: string | undefined;
+        }> = [];
+        const observedSpawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (ChildProcess.isStandardCommand(command)) {
+              launches.push({
+                operation: yield* ObservedOperation,
+                path: command.options.env?.PATH,
+                home: command.options.env?.CODEX_HOME,
+              });
+            }
+            return yield* spawner.spawn(command);
+          }),
+        );
+        const launchesOf = (operation: string) =>
+          launches.filter((launch) => launch.operation === operation);
         const root = yield* fs.makeTempDirectoryScoped();
         const oldBin = NodePath.join(root, "old", "packages", "standalone", "bin");
         const newBin = NodePath.join(root, "new", "packages", "standalone", "bin");
@@ -78,22 +91,27 @@ it.layer(layerTest)("CodexDriver host environment", (it) => {
         expect((yield* inherited.snapshot.resolveMaintenance()).update?.executable).toBe(
           NodePath.join(newBin, "codex"),
         );
-        yield* inherited.snapshot.refresh;
-        expect(paths.at(-1)).toBe(newBin);
-        expect(homes.at(-1)).toBe(NodePath.join(root, "other"));
-        const beforeGeneration = homes.length;
+        yield* inherited.snapshot.refresh.pipe(observing("inherited check"));
+        expect(launchesOf("inherited check").at(-1)).toEqual({
+          operation: "inherited check",
+          path: newBin,
+          home: NodePath.join(root, "other"),
+        });
         yield* inherited.textGeneration
           .generateThreadTitle({
             cwd: root,
             message: "test",
             modelSelection: createModelSelection(inherited.instanceId, "gpt-test"),
           })
-          .pipe(Effect.exit);
-        expect(homes.length).toBeGreaterThan(beforeGeneration);
-        expect(homes.at(-1)).toBe(NodePath.join(root, "other"));
-        yield* overridden.snapshot.refresh;
-        expect(paths.at(-1)).toBe(oldBin);
-        expect(homes.at(-1)).toBe(NodePath.join(root, "instance-home"));
+          .pipe(Effect.exit, observing("generation"));
+        expect(launchesOf("generation").length).toBeGreaterThan(0);
+        expect(launchesOf("generation").at(-1)?.home).toBe(NodePath.join(root, "other"));
+        yield* overridden.snapshot.refresh.pipe(observing("overridden check"));
+        expect(launchesOf("overridden check").at(-1)).toEqual({
+          operation: "overridden check",
+          path: oldBin,
+          home: NodePath.join(root, "instance-home"),
+        });
         expect((yield* inherited.snapshot.resolveMaintenance()).update?.executable).toBe(
           NodePath.join(newBin, "codex"),
         );

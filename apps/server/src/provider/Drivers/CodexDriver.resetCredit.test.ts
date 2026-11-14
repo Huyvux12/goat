@@ -19,6 +19,7 @@ import * as CodexInstallation from "../CodexInstallation.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
 import { CodexDriver } from "./CodexDriver.ts";
 import { layerTest } from "./CodexDriver.testkit.ts";
+import { ObservedOperation, observing } from "./CodexObservedOperation.testkit.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
@@ -124,19 +125,26 @@ const fixtureCodex = (root: string, body = "") =>
 
 /**
  * The CODEX_HOME each status-check launch got, the one a new session opened from another workspace
- * was started with, the one the redemption got, and those text generation's launches got.
+ * was started with, the one the redemption got, and those text generation's launches got. Checks the
+ * instance starts itself also launch Codex, so launches count by the operation that made them.
  */
 const launchedHomes = (root: string, form: InstanceForm) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const bin = yield* fixtureCodex(root);
-    const homes: Array<string | undefined> = [];
+    const homes = new Map<string | undefined, Array<string | undefined>>();
     const session: Array<string | undefined> = [];
-    const observed = ChildProcessSpawner.make((command) => {
-      if (ChildProcess.isStandardCommand(command)) homes.push(command.options.env?.CODEX_HOME);
-      return spawner.spawn(command);
-    });
+    const observed = ChildProcessSpawner.make((command) =>
+      Effect.gen(function* () {
+        if (ChildProcess.isStandardCommand(command)) {
+          const operation = yield* ObservedOperation;
+          homes.set(operation, [...(homes.get(operation) ?? []), command.options.env?.CODEX_HOME]);
+        }
+        return yield* spawner.spawn(command);
+      }),
+    );
+    const homesOf = (operation: string) => homes.get(operation) ?? [];
     const instance = yield* createInstance({
       id: "launch-homes",
       root,
@@ -152,9 +160,7 @@ const launchedHomes = (root: string, form: InstanceForm) =>
           ),
       },
     });
-    const before = homes.length;
-    yield* instance.snapshot.refresh;
-    const status = homes.slice(before);
+    yield* instance.snapshot.refresh.pipe(observing("status"));
     const workspace = `${root}/work/project`;
     yield* fs.makeDirectory(workspace, { recursive: true });
     const runtimePolicy = { ...CODEX_TEST_RUNTIME_POLICY, cwd: workspace };
@@ -166,18 +172,20 @@ const launchedHomes = (root: string, form: InstanceForm) =>
         runtimePolicy,
       })
       .pipe(Effect.exit);
-    const atRedeem = homes.length;
-    yield* instance.consumeResetCredit!(undefined).pipe(Effect.exit);
-    const redemption = homes.slice(atRedeem);
-    const atGenerate = homes.length;
+    yield* instance.consumeResetCredit!(undefined).pipe(Effect.exit, observing("redemption"));
     yield* instance.textGeneration
       .generateThreadTitle({
         cwd: workspace,
         message: "Name this thread",
         modelSelection: { instanceId: ProviderInstanceId.make("launch-homes"), model: "gpt-test" },
       })
-      .pipe(Effect.exit);
-    return { status, session, redemption, textGeneration: homes.slice(atGenerate) };
+      .pipe(Effect.exit, observing("generation"));
+    return {
+      status: homesOf("status"),
+      session,
+      redemption: homesOf("redemption"),
+      textGeneration: homesOf("generation"),
+    };
   }).pipe(Effect.provideService(HostProcess.HomeDirectory, root));
 
 const expectSameHome = (homes: {

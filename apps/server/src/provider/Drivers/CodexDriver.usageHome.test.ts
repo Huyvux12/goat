@@ -28,6 +28,7 @@ import {
 } from "../../orchestration-v2/Adapters/CodexReplay.testkit.ts";
 import { CodexDriver } from "./CodexDriver.ts";
 import { layerTest } from "./CodexDriver.testkit.ts";
+import { currentObservedOperation, observing } from "./CodexObservedOperation.testkit.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
@@ -63,13 +64,15 @@ const usageTranscript = (name: string, usedPercent: number) => {
 /**
  * An instance with an unrelated variable whose sessions replay `usage` by session name. The factory
  * always starts a fresh process; `preservedRecord` lists a kept record as if one had exited.
- * `onOpen` runs while a session's process starts and `onSpawn` while a check launches Codex.
+ * `onOpen` runs while a session's process starts and `onSpawn` while a check launches Codex;
+ * `holdFirstCheck` stops the check the instance starts on creation before it reads anything.
  */
 const usageHarness = (input: {
   readonly host: NodeJS.ProcessEnv;
   readonly usage: Readonly<Record<string, number>>;
   readonly homeDirectory?: string;
   readonly preservedRecord?: boolean;
+  readonly holdFirstCheck?: boolean;
   readonly onOpen?: () => Effect.Effect<void>;
   readonly onSpawn?: () => Effect.Effect<void>;
 }) =>
@@ -89,6 +92,11 @@ const usageHarness = (input: {
     let startGate:
       | { reached: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
       | undefined;
+    const firstCheck = {
+      reached: yield* Deferred.make<void>(),
+      release: yield* Deferred.make<void>(),
+    };
+    if (input.holdFirstCheck === true) startGate = firstCheck;
     const instance = yield* CodexDriver.create({
       instanceId,
       displayName: "Usage home test",
@@ -220,6 +228,7 @@ const usageHarness = (input: {
       holdNextCheck,
       holdNextCheckStart,
       abandonChecks,
+      firstCheck,
     };
   });
 
@@ -279,25 +288,39 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("a usage report reads no environment", () =>
+  it.effect("a usage report reads no environment, even while a background check reads it", () =>
     Effect.gen(function* () {
       let reads = 0;
+      // Reads made by the session's own fibers, which inherit the operation from its open.
+      let sessionReads = 0;
       const host = new Proxy<NodeJS.ProcessEnv>(
         { HOME: "/fixture", CODEX_HOME: "/fixture/a" },
         {
           ownKeys: (target) => {
             reads += 1;
+            if (currentObservedOperation() === "session") sessionReads += 1;
             return Reflect.ownKeys(target);
           },
         },
       );
-      const { open, percents, check } = yield* usageHarness({ host, usage: { a: 10 } });
-      yield* check;
-      const report = yield* open("a");
-      const before = reads;
-      yield* report;
+      const checkLaunched = yield* Deferred.make<void>();
+      const { open, percents, firstCheck } = yield* usageHarness({
+        host,
+        usage: { a: 10 },
+        holdFirstCheck: true,
+        onSpawn: () =>
+          Deferred.succeed(checkLaunched, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Deferred.await(firstCheck.reached);
+      const report = yield* open("a").pipe(observing("session"));
+      const [before, sessionBefore] = [reads, sessionReads];
+      yield* Deferred.succeed(firstCheck.release, undefined);
+      yield* report.pipe(observing("session"));
+      // The released check has read the environment and is launching Codex.
+      yield* Deferred.await(checkLaunched);
       expect(yield* percents).toContain(10);
-      expect(reads).toBe(before);
+      expect(reads).toBeGreaterThan(before);
+      expect(sessionReads).toBe(sessionBefore);
     }).pipe(Effect.scoped),
   );
 
