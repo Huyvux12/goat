@@ -90,6 +90,7 @@ import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
 import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import Migration0081 from "./Migrations/081_ProjectionMessageSearchText.ts";
 import Migration0082 from "./Migrations/082_TurnItemConversationIndex.ts";
+import Migration0083 from "./Migrations/083_CommandReadIndexes.ts";
 import Migration0084 from "./Migrations/084_LastExecutedRunIndex.ts";
 import Migration0085 from "./Migrations/085_TurnItemCounts.ts";
 import Migration0087 from "./Migrations/087_ProjectionProjectsCustomTitle.ts";
@@ -246,6 +247,7 @@ export const migrationEntries = [
   [80, "ScheduledTaskThreadMode", Migration0080],
   [81, "ProjectionMessageSearchText", Migration0081],
   [82, "TurnItemConversationIndex", Migration0082],
+  [83, "CommandReadIndexes", Migration0083],
   [84, "LastExecutedRunIndex", Migration0084],
   [85, "TurnItemCounts", Migration0085],
   [87, "ProjectionProjectsCustomTitle", Migration0087],

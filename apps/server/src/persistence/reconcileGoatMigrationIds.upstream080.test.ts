@@ -16,6 +16,7 @@ const UPSTREAM_80S: ReadonlyArray<readonly [number, string]> = [
   [80, "ScheduledTaskThreadMode"],
   [81, "ProjectionMessageSearchText"],
   [82, "TurnItemConversationIndex"],
+  [83, "CommandReadIndexes"],
   [84, "LastExecutedRunIndex"],
   [85, "TurnItemCounts"],
   [87, "ProjectionProjectsCustomTitle"],
