@@ -303,20 +303,32 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
           },
         },
       );
+      // Set once the background check below is released: it reports its launch and stays there.
+      let holdLaunch = false;
       const checkLaunched = yield* Deferred.make<void>();
-      const { open, percents, firstCheck } = yield* usageHarness({
+      const { open, percents, check, holdNextCheckStart, firstCheck } = yield* usageHarness({
         host,
         usage: { a: 10 },
         holdFirstCheck: true,
         onSpawn: () =>
-          Deferred.succeed(checkLaunched, undefined).pipe(Effect.andThen(Effect.never)),
+          holdLaunch
+            ? Deferred.succeed(checkLaunched, undefined).pipe(Effect.andThen(Effect.never))
+            : Effect.void,
       });
+      // The check forked on creation holds the lock, so this check publishes after it, under a.
       yield* Deferred.await(firstCheck.reached);
+      yield* Deferred.succeed(firstCheck.release, undefined);
+      yield* check;
+      // A check outside the session's operation, held before it reads anything.
+      const gate = yield* holdNextCheckStart;
+      yield* check.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.reached);
       const report = yield* open("a").pipe(observing("session"));
       const [before, sessionBefore] = [reads, sessionReads];
-      yield* Deferred.succeed(firstCheck.release, undefined);
+      holdLaunch = true;
+      yield* Deferred.succeed(gate.release, undefined);
       yield* report.pipe(observing("session"));
-      // The released check has read the environment and is launching Codex.
+      // The released check has read the environment and is launching Codex; it never publishes.
       yield* Deferred.await(checkLaunched);
       expect(yield* percents).toContain(10);
       expect(reads).toBeGreaterThan(before);
@@ -555,7 +567,7 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
       Effect.gen(function* () {
         const { root, point } = yield* homeLink;
         let moveOnSpawn = false;
-        const { open, percents, check } = yield* usageHarness({
+        const { open, percents, check, firstCheck } = yield* usageHarness({
           host: { HOME: root, CODEX_HOME: `${root}/link` },
           usage: { after: 40 },
           homeDirectory: root,
@@ -564,7 +576,13 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
             moveOnSpawn = false;
             return point("b");
           },
+          holdFirstCheck: true,
         });
+        // The check forked on creation holds the lock, so this check finishes after it, before
+        // the link moves: only the next check sees the move.
+        yield* Deferred.await(firstCheck.reached);
+        yield* Deferred.succeed(firstCheck.release, undefined);
+        yield* check;
         yield* point("a");
         moveOnSpawn = true;
         yield* check;
