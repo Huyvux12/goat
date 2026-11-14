@@ -5,6 +5,7 @@ import { Profiler, cloneElement } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "../../test/render";
+import { navigationBlocked } from "../lib/navigationHolds";
 import { observeResize } from "../lib/observeResize";
 
 const state = vi.hoisted(() => ({
@@ -67,6 +68,8 @@ vi.mock("../state/threads", async (importOriginal) => {
 // hidden, and its composer keeps a draft in its own state.
 vi.mock("../components/goatBot/GoatBotChatView", async () => {
   const { GoatBotStepsReader } = await import("../components/goatBot/GoatBotStepsProvider");
+  // A held draft, open file or edited name: the real surfaces render this hold.
+  const { HoldsNavigation } = await import("../lib/navigationHolds");
   return {
     GoatBotChatView: (props: {
       removal?: string | null;
@@ -79,6 +82,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
           <div>
             Main chat
             <input aria-label="Message" />
+            <HoldsNavigation />
             {props.removal === "deleted" ? <span>Chat removed</span> : null}
             {props.onRestore ? (
               <button type="button" onClick={props.onRestore}>
@@ -215,6 +219,40 @@ it("focus in the chat moves to the task heading when the task replaces it; focus
   container.style.width = "700px";
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   await expect.element(screen.getByRole("button", { name: "Search" })).toHaveFocus();
+});
+
+it("a chat the task replaces holds no navigation, and holds again once shown", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  expect(navigationBlocked()).toBe(true);
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  expect(navigationBlocked()).toBe(false);
+  container.style.width = "1000px";
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  expect(navigationBlocked()).toBe(true);
+});
+
+it("focus in a portalled dialog moves to the task heading when the task replaces the chat", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(
+    <>
+      {taskRoute}
+      <div role="dialog" aria-label="Chat popup">
+        <button type="button">In popup</button>
+      </div>
+    </>,
+    { router: false, container }, // No navigation.
+  );
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "In popup" }));
+  container.style.width = "700px";
+  await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
 });
 
 it("the window narrowing past 980px alone also replaces the chat and hands focus to the task", async () => {

@@ -99,7 +99,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         // Read while transitions are still off: a read after would see where the animation starts.
         if (committed) shownWidth = renderedWidth(host);
         host?.style.removeProperty("transition-property");
-        if (!committed) host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${startWidth}px`);
+        if (!committed) restoreWidth(host);
       },
     };
   });

@@ -55,7 +55,6 @@ async function settleAfter<T>(work: Promise<T>, settle: (outcome: T | null) => v
 export function GoatBotComposer({
   ref,
   disabled,
-  hidden = false,
   botName,
   placeholder,
   initialText = "",
@@ -67,8 +66,6 @@ export function GoatBotComposer({
 }: {
   readonly ref?: Ref<GoatBotComposerHandle>;
   readonly disabled: boolean;
-  /** Off screen behind a task: navigation may drop this draft, as it did before it stayed mounted. */
-  readonly hidden?: boolean;
   /** The bot this box messages, as its chat names it. */
   readonly botName: string;
   readonly placeholder: string;
@@ -192,7 +189,7 @@ export function GoatBotComposer({
 
   return (
     <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-4">
-      {holdsNavigation && !hidden ? <HoldsNavigation /> : null}
+      {holdsNavigation ? <HoldsNavigation /> : null}
       <div
         className={cn(
           "goat-composer-field flex flex-col justify-center py-1 pr-1",

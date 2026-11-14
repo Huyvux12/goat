@@ -4,6 +4,7 @@ import { scopeThreadRef } from "@goat/client-runtime/environment";
 import type { ChannelTaskId, EnvironmentId } from "@goat/contracts";
 import { useGlobalAgentStore } from "../globalAgentStore";
 import { useClientSettings } from "../hooks/useSettings";
+import { NavigationHoldsPaused } from "../lib/navigationHolds";
 import {
   resolveThreadDetailRef,
   useThreadShell,
@@ -181,23 +182,26 @@ export function GoatBotTaskRoute({
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1">
-        {/* Hidden, not unmounted, while the task replaces it: the composer keeps its draft. */}
+        {/* Hidden, not unmounted, while the task replaces it: the composer keeps its draft, and its
+            holds pause as they did when it unmounted. */}
         <div ref={chatRef} hidden={!beside} className="flex min-h-0 min-w-0 flex-1">
-          <GoatBotStepsProvider
-            visibleTurnItems={session.visibleTurnItems}
-            environmentId={memberDeleted ? null : environmentId}
-          >
-            <GoatBotChatView
-              {...session}
-              hidden={!beside}
-              environmentId={environmentId}
-              legacyAgentRoute={legacyAgentRoute}
-              removal={memberDeleted ? "deleted" : null}
-              onRestore={
-                memberDeleted && manage.canManage ? () => void manage.restore(member) : undefined
-              }
-            />
-          </GoatBotStepsProvider>
+          <NavigationHoldsPaused value={!beside}>
+            <GoatBotStepsProvider
+              visibleTurnItems={session.visibleTurnItems}
+              environmentId={memberDeleted ? null : environmentId}
+            >
+              <GoatBotChatView
+                {...session}
+                hidden={!beside}
+                environmentId={environmentId}
+                legacyAgentRoute={legacyAgentRoute}
+                removal={memberDeleted ? "deleted" : null}
+                onRestore={
+                  memberDeleted && manage.canManage ? () => void manage.restore(member) : undefined
+                }
+              />
+            </GoatBotStepsProvider>
+          </NavigationHoldsPaused>
         </div>
         <GoatBotTaskPane
           narrow={!beside}

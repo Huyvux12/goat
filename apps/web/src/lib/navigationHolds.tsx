@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react";
+import { createContext, useContext, useLayoutEffect } from "react";
 
 // Surfaces holding unsaved or in-progress work hold back an automatic navigation, such as New bot
 // opening the chat it created. They live all over the app, so the holds are a module the navigating
@@ -34,9 +34,13 @@ export function resetNavigationHoldsForTests(): void {
   holds.clear();
 }
 
-/** Holds navigation back while mounted; render it inside a surface that mounts only while shown. */
+/** True under a surface kept mounted but off screen: the holds inside it pause. */
+export const NavigationHoldsPaused = createContext(false);
+
+/** Holds navigation back while mounted and shown; render it inside a surface shown on screen. */
 export function HoldsNavigation(): null {
+  const paused = useContext(NavigationHoldsPaused);
   // oxlint-disable-next-line goat/react-effect-budget -- The hold must end with the surface, however it unmounts.
-  useLayoutEffect(() => holdNavigation(), []);
+  useLayoutEffect(() => (paused ? undefined : holdNavigation()), [paused]);
   return null;
 }

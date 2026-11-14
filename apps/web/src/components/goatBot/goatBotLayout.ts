@@ -53,7 +53,10 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   const handOffFocus = useStableCallback((row: HTMLElement) => {
     const active = row.ownerDocument.activeElement;
     const lost = active === null || active === row.ownerDocument.body;
-    if (!lost && !chatRef.current?.contains(active)) return;
+    // A dialog or menu portalled out of the row (Home's sheet, a chat menu) goes with the chat.
+    const portalled =
+      !lost && !row.contains(active) && active.closest('[role="dialog"], [role="menu"]') !== null;
+    if (!lost && !portalled && !chatRef.current?.contains(active)) return;
     row.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
   });
   const rowRef = (row: HTMLElement | null) => {

@@ -586,7 +586,6 @@ function GoatBotChatViewContent({
             key={seed?.nonce ?? 0}
             initialText={seed?.text ?? ""}
             disabled={!canSend}
-            hidden={hidden}
             botName={title}
             placeholder={
               canSend
