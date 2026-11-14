@@ -17,6 +17,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
@@ -429,15 +431,20 @@ function applyWslWindowsFallback(settings: DesktopSettings): DesktopSettings {
   return setWslOnly(setWslBackendEnabled(settings, false), false);
 }
 
+// Fails only when the file may exist but could not be read; a missing file means defaults.
 function readSettings(
   fileSystem: FileSystem.FileSystem,
   settingsPath: string,
   appVersion: string,
-): Effect.Effect<DesktopSettings> {
+): Effect.Effect<DesktopSettings, PlatformError.PlatformError> {
   const defaultSettings = resolveDefaultDesktopSettings(appVersion);
 
   return fileSystem.readFileString(settingsPath).pipe(
-    Effect.option,
+    Effect.asSome,
+    Effect.catchIf(
+      (cause) => cause.reason._tag === "NotFound",
+      () => Effect.succeed(Option.none<string>()),
+    ),
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.succeed(defaultSettings),
@@ -526,6 +533,8 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const settingsRef = yield* SynchronizedRef.make(environment.defaultDesktopSettings);
+  // Writing over a settings file we could not read would erase the preferences it holds.
+  const persistenceEnabled = yield* Ref.make(true);
 
   const updateInMemory = (update: (settings: DesktopSettings) => DesktopSettings) =>
     SynchronizedRef.modify(settingsRef, (settings) => {
@@ -542,25 +551,31 @@ export const make = Effect.gen(function* () {
         return Effect.succeed([settingsChange(settings, false), settings] as const);
       }
 
-      return crypto.randomUUIDv4().pipe(
-        Effect.map((uuid) => uuid.replace(/-/g, "")),
-        Effect.mapError(
-          (cause) =>
-            new DesktopSettingsWriteError({
-              operation: "create-temporary-file-name",
-              path: environment.desktopSettingsPath,
-              cause,
-            }),
-        ),
-        Effect.flatMap((suffix) =>
-          writeSettings({
-            fileSystem,
-            path,
-            settingsPath: environment.desktopSettingsPath,
-            settings: nextSettings,
-            defaultSettings: environment.defaultDesktopSettings,
-            suffix,
-          }),
+      return Ref.get(persistenceEnabled).pipe(
+        Effect.flatMap((enabled) =>
+          enabled
+            ? crypto.randomUUIDv4().pipe(
+                Effect.map((uuid) => uuid.replace(/-/g, "")),
+                Effect.mapError(
+                  (cause) =>
+                    new DesktopSettingsWriteError({
+                      operation: "create-temporary-file-name",
+                      path: environment.desktopSettingsPath,
+                      cause,
+                    }),
+                ),
+                Effect.flatMap((suffix) =>
+                  writeSettings({
+                    fileSystem,
+                    path,
+                    settingsPath: environment.desktopSettingsPath,
+                    settings: nextSettings,
+                    defaultSettings: environment.defaultDesktopSettings,
+                    suffix,
+                  }),
+                ),
+              )
+            : Effect.void,
         ),
         Effect.as([settingsChange(nextSettings, true), nextSettings] as const),
       );
@@ -573,6 +588,17 @@ export const make = Effect.gen(function* () {
         fileSystem,
         environment.desktopSettingsPath,
         environment.appVersion,
+      ).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning(
+            "Could not read desktop settings; using defaults without saving changes.",
+            cause,
+          ).pipe(
+            Effect.annotateLogs({ settingsPath: environment.desktopSettingsPath }),
+            Effect.andThen(Ref.set(persistenceEnabled, false)),
+            Effect.as(resolveDefaultDesktopSettings(environment.appVersion)),
+          ),
+        ),
       );
       return yield* SynchronizedRef.setAndGet(settingsRef, settings);
     }).pipe(Effect.withSpan("desktop.settings.load")),
