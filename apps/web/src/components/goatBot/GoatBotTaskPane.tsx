@@ -176,7 +176,8 @@ export function GoatBotTaskPane({
         </Button>
         <div
           className={
-            narrow ? "order-last flex min-w-0 w-full items-baseline gap-2" : "min-w-0 flex-1"
+            // The title keeps 5rem beside the actions; below that the actions wrap to a new line.
+            narrow ? "order-last flex min-w-0 w-full items-baseline gap-2" : "min-w-20 flex-1"
           }
         >
           <Tooltip>
