@@ -115,6 +115,7 @@ import {
 import type { SnoozePreset } from "../Sidebar.snooze";
 import { SnoozeMenuButton } from "./SidebarSnoozeMenuButton";
 import { useThreadShell } from "../../state/entities";
+import { rowThreadWithLaunch } from "./launchingThreads";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
@@ -372,9 +373,10 @@ export function SortableThreadRow(
   };
   // The sidebar arranges rows from quiet shells, which hold still while a
   // thread streams; reading the live shell here re-renders only this row.
-  const thread =
-    useThreadShell(scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id)) ??
-    rowProps.thread;
+  const thread = rowThreadWithLaunch(
+    rowProps.thread,
+    useThreadShell(scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id)),
+  );
   // Keyed by variant so a card/slim switch remounts the row.
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }

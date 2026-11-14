@@ -34,6 +34,7 @@ import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-pref
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { threadListEnvironmentsAtom } from "../../state/presentation";
 import { usePendingNewTasks, type PendingNewTask } from "../../state/use-pending-new-tasks";
+import { useLaunchingThreads } from "../../state/use-pending-new-tasks";
 import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -154,7 +155,7 @@ function ThreadNavigationSidebarPane(
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
   const projects = useProjects();
-  const threads = useNavigationThreadShells();
+  const threads = useLaunchingThreads(useNavigationThreadShells());
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInputInstance>(null);
