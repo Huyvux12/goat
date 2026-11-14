@@ -4,6 +4,8 @@ import * as NodeSqlite from "node:sqlite";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as TestClock from "effect/testing/TestClock";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
@@ -15,7 +17,11 @@ import { beforeEach } from "vite-plus/test";
 import { OpenCodeSettings } from "../settings.ts";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
-import { checkOpenCodeProviderStatus, type OpenCode2Model } from "./status.ts";
+import {
+  checkOpenCodeProviderStatus,
+  makeOpenCode2ModelLoader,
+  type OpenCode2Model,
+} from "./status.ts";
 import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
 import { probeOpenCodeRuntime } from "./versionProbe.ts";
 import {
@@ -1060,3 +1066,20 @@ it.layer(layerTest)("checkOpenCodeProviderStatus with configured server URL", (i
     }),
   );
 });
+
+it.effect("lists a catalog whose cold server start outlasts the settle budget", () =>
+  Effect.gen(function* () {
+    const catalog: ReadonlyArray<OpenCode2Model> = [
+      { providerID: "opencode", id: "big-pickle", name: "Big Pickle", variants: [] },
+    ];
+    let reads = 0;
+    // The loader's read includes spawning the server; a loaded host can take 6s to start it.
+    const read = Effect.suspend(() =>
+      reads++ === 0 ? Effect.sleep("6 seconds").pipe(Effect.as(catalog)) : Effect.succeed(catalog),
+    );
+    const load = yield* makeOpenCode2ModelLoader(read);
+    const fiber = yield* Effect.forkChild(load);
+    yield* TestClock.adjust("10 seconds");
+    NodeAssert.deepEqual(yield* Fiber.join(fiber), catalog);
+  }),
+);

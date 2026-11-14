@@ -7,6 +7,8 @@ import type { OpenCode2Model } from "./status.ts";
 
 // Cold catalogs take seconds; model reads already retry empty catalogs.
 const PROVIDER_NAME_TIMEOUT = "3 seconds";
+// Bounds the request alone (server start has its own bounds); a slow list reads as not listed yet.
+const MODEL_LIST_TIMEOUT = "5 seconds";
 
 /** Provider names are optional decoration; bound their read so models cannot stall. */
 export const loadOpenCode2Catalog = (
@@ -16,7 +18,10 @@ export const loadOpenCode2Catalog = (
   const location = { directory };
   return Effect.all(
     {
-      models: client.model.list({ location }),
+      models: client.model.list({ location }).pipe(
+        Effect.timeoutOption(MODEL_LIST_TIMEOUT),
+        Effect.map((list) => (list._tag === "Some" ? list.value.data : [])),
+      ),
       providers: client.provider
         .list({ location })
         .pipe(Effect.timeout(PROVIDER_NAME_TIMEOUT), Effect.option),
@@ -30,7 +35,7 @@ export const loadOpenCode2Catalog = (
           provider.name,
         ]),
       );
-      return models.data.map((model) => {
+      return models.map((model) => {
         const providerName = providerNames.get(model.providerID);
         return {
           providerID: model.providerID,
