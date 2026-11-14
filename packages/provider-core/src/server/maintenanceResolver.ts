@@ -2,6 +2,7 @@ import { resolveMacPortsOwner } from "./maintenanceMacPorts.ts";
 import { runProbe } from "./maintenanceProbe.ts";
 import { environmentCacheKey } from "./maintenanceEnvironmentCache.ts";
 import { quoteShellWord, quoteUpdateExecutable } from "./maintenanceShellQuote.ts";
+import { followVitePlusSystemFirstShim } from "./maintenanceVitePlusShim.ts";
 export type {
   ProviderMaintenanceCapabilities,
   ProviderMaintenanceCommandAction,
@@ -357,14 +358,15 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   "resolvePackageManagedProviderMaintenance",
 )(function* (
   definition: PackageManagedProviderMaintenanceDefinition,
-  context: ProviderMaintenanceResolutionContext | null,
+  configuredContext: ProviderMaintenanceResolutionContext | null,
 ) {
-  if (!context) {
+  if (!configuredContext) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: definition.npmPackageName,
     });
   }
+  const context = yield* followVitePlusSystemFirstShim(configuredContext);
   const manual = makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
