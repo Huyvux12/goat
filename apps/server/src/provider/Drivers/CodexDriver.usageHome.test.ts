@@ -28,7 +28,11 @@ import {
 } from "../../orchestration-v2/Adapters/CodexReplay.testkit.ts";
 import { CodexDriver } from "./CodexDriver.ts";
 import { layerTest } from "./CodexDriver.testkit.ts";
-import { currentObservedOperation, observing } from "./CodexObservedOperation.testkit.ts";
+import {
+  ObservedOperation,
+  currentObservedOperation,
+  observing,
+} from "./CodexObservedOperation.testkit.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
@@ -302,46 +306,53 @@ it.layer(layerTest)("Codex usage and the session's home", (it) => {
 
   it.effect("a usage report reads no environment, even while a background check reads it", () =>
     Effect.gen(function* () {
-      let reads = 0;
-      // Reads made by the session's own fibers, which inherit the operation from its open.
-      let sessionReads = 0;
+      // Every way to read the environment, a single variable as well as a spread, counted by the
+      // operation of the fiber that reads; the session's fibers inherit theirs from its open.
+      const reads = new Map<string | undefined, number>();
+      const read = () => {
+        const operation = currentObservedOperation();
+        reads.set(operation, (reads.get(operation) ?? 0) + 1);
+      };
+      const readsBy = (operation: string) => reads.get(operation) ?? 0;
       const host = new Proxy<NodeJS.ProcessEnv>(
         { HOME: "/fixture", CODEX_HOME: "/fixture/a" },
         {
-          ownKeys: (target) => {
-            reads += 1;
-            if (currentObservedOperation() === "session") sessionReads += 1;
-            return Reflect.ownKeys(target);
-          },
+          get: (target, key, receiver) => (read(), Reflect.get(target, key, receiver)),
+          has: (target, key) => (read(), Reflect.has(target, key)),
+          ownKeys: (target) => (read(), Reflect.ownKeys(target)),
+          getOwnPropertyDescriptor: (target, key) => (
+            read(),
+            Reflect.getOwnPropertyDescriptor(target, key)
+          ),
         },
       );
-      // Set once the background check below is released: it reports its launch and stays there.
-      let holdLaunch = false;
       const checkLaunched = yield* Deferred.make<void>();
       const { open, percents, check, holdNextCheckStart, checkAfterFirst } = yield* usageHarness({
         host,
         usage: { a: 10 },
         holdFirstCheck: true,
+        // Only the background check's launch, which comes after its environment read, signals; it
+        // stays there and never publishes.
         onSpawn: () =>
-          holdLaunch
-            ? Deferred.succeed(checkLaunched, undefined).pipe(Effect.andThen(Effect.never))
-            : Effect.void,
+          Effect.gen(function* () {
+            if ((yield* ObservedOperation) !== "background") return;
+            yield* Deferred.succeed(checkLaunched, undefined);
+            return yield* Effect.never;
+          }),
       });
       yield* checkAfterFirst;
       // A check outside the session's operation, held before it reads anything.
       const gate = yield* holdNextCheckStart;
-      yield* check.pipe(Effect.forkChild);
+      yield* check.pipe(observing("background"), Effect.forkChild);
       yield* Deferred.await(gate.reached);
       const report = yield* open("a").pipe(observing("session"));
-      const [before, sessionBefore] = [reads, sessionReads];
-      holdLaunch = true;
+      const [backgroundBefore, sessionBefore] = [readsBy("background"), readsBy("session")];
       yield* Deferred.succeed(gate.release, undefined);
       yield* report.pipe(observing("session"));
-      // The released check has read the environment and is launching Codex; it never publishes.
       yield* Deferred.await(checkLaunched);
       expect(yield* percents).toContain(10);
-      expect(reads).toBeGreaterThan(before);
-      expect(sessionReads).toBe(sessionBefore);
+      expect(readsBy("background")).toBeGreaterThan(backgroundBefore);
+      expect(readsBy("session")).toBe(sessionBefore);
     }).pipe(Effect.scoped),
   );
 
