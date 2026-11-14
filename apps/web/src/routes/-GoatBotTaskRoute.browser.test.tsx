@@ -575,12 +575,12 @@ it("focus in a menu the task pane portalled out stays there when the task replac
   await expect.element(page.getByRole("button", { name: "In task menu" })).toHaveFocus();
 });
 
-it("the chat is beside the task by the end of the first commit's task, before any paint", async () => {
+it("the chat is beside the task after the first commit, not deferred to a timer", async () => {
   state.beside = true;
   await using _window = await windowWidth(1440);
   const container = row(1000);
-  // Queued from the first commit; it runs after React's synchronous flush of what that commit's
-  // ref callbacks set, and before the browser can paint.
+  // Queued from the first commit. render() drains effects inside act() first, so this rules out a
+  // timer, not a passive effect; the ref callback's layout-phase update is what precedes paint.
   let seen: string | null = null;
   const probe = (element: HTMLElement | null) => {
     if (element === null || seen !== null) return;
