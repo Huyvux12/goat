@@ -118,7 +118,10 @@ describe("tailscale", () => {
         const client = HttpClient.make((request) =>
           Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body, { status }))),
         );
-        const input = { baseUrl: "https://desktop.example.ts.net" };
+        const input = {
+          baseUrl: "https://desktop.example.ts.net",
+          environmentId: "this-environment",
+        };
         const reachable = yield* probeTailscaleHttpsEndpoint(input).pipe(
           Effect.provideService(HttpClient.HttpClient, client),
         );
@@ -350,6 +353,41 @@ describe("tailscale", () => {
 });
 
 describe("Tailscale endpoint path compatibility", () => {
+  it.effect("does not treat another GOAT server behind the Serve URL as this server", () =>
+    Effect.gen(function* () {
+      const answer = (environmentId: string) =>
+        HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({
+                environmentId,
+                label: "GOAT server",
+                platform: { os: "linux", arch: "x64" },
+                serverVersion: "0.1.9",
+                capabilities: { repositoryIdentity: true },
+              }),
+            ),
+          ),
+        );
+      const input = {
+        baseUrl: "https://desktop.example.ts.net",
+        environmentId: "this-environment",
+      };
+      const probe = (served: string) =>
+        probeTailscaleHttpsEndpoint(input).pipe(
+          Effect.provideService(HttpClient.HttpClient, answer(served)),
+        );
+
+      assert.isTrue(yield* probe("this-environment"));
+      assert.isFalse(yield* probe("another-environment"));
+      const classification = yield* classifyTailscaleHttpsEndpoint(input).pipe(
+        Effect.provideService(HttpClient.HttpClient, answer("another-environment")),
+      );
+      assert.equal(classification, "not-goat");
+    }),
+  );
+
   it.effect.each([200, 404, 403, 500])("probes GOAT first, HTTP %s", (status) =>
     Effect.gen(function* () {
       const paths: string[] = [];
@@ -358,7 +396,10 @@ describe("Tailscale endpoint path compatibility", () => {
         const answered = paths.length === 1 ? status : 200;
         return new Response(answered === 200 ? GOAT_DESCRIPTOR_BODY : null, { status: answered });
       };
-      const result = yield* probeTailscaleHttpsEndpoint({ baseUrl: "https://host.example" }).pipe(
+      const result = yield* probeTailscaleHttpsEndpoint({
+        baseUrl: "https://host.example",
+        environmentId: "serve-test",
+      }).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(FetchHttpClient.Fetch, fetchFn),
       );
@@ -378,7 +419,10 @@ describe("Tailscale endpoint path compatibility", () => {
         calls++;
         return new Response(null, { status: 404 });
       };
-      const result = yield* probeTailscaleHttpsEndpoint({ baseUrl: "https://host.example" }).pipe(
+      const result = yield* probeTailscaleHttpsEndpoint({
+        baseUrl: "https://host.example",
+        environmentId: "serve-test",
+      }).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(FetchHttpClient.Fetch, fetchFn),
       );
@@ -391,6 +435,7 @@ describe("Tailscale endpoint path compatibility", () => {
     Effect.gen(function* () {
       const refused = yield* classifyTailscaleHttpsEndpoint({
         baseUrl: "https://host.example",
+        environmentId: "serve-test",
       }).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(FetchHttpClient.Fetch, async () => {
@@ -403,6 +448,7 @@ describe("Tailscale endpoint path compatibility", () => {
 
       const noAnswer = yield* classifyTailscaleHttpsEndpoint({
         baseUrl: "https://host.example",
+        environmentId: "serve-test",
       }).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(FetchHttpClient.Fetch, async () => {
@@ -413,6 +459,7 @@ describe("Tailscale endpoint path compatibility", () => {
 
       const notGoat = yield* classifyTailscaleHttpsEndpoint({
         baseUrl: "https://host.example",
+        environmentId: "serve-test",
       }).pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(

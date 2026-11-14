@@ -515,7 +515,11 @@ const isConnectionRefused = (error: unknown): boolean => {
 };
 
 export const classifyTailscaleHttpsEndpoint = Effect.fn("tailscale.classifyTailscaleHttpsEndpoint")(
-  function* (input: { readonly baseUrl: string; readonly timeout?: Duration.Input }) {
+  function* (input: {
+    readonly baseUrl: string;
+    readonly environmentId: string;
+    readonly timeout?: Duration.Input;
+  }) {
     const client = yield* HttpClient.HttpClient;
     return yield* Effect.gen(function* () {
       const url = new URL(GOAT_ENVIRONMENT_PATH, input.baseUrl);
@@ -526,11 +530,13 @@ export const classifyTailscaleHttpsEndpoint = Effect.fn("tailscale.classifyTails
           ? yield* client.get(new URL(LEGACY_ENVIRONMENT_PATH, input.baseUrl).toString())
           : first;
       if (response.status < 200 || response.status >= 300) return "not-goat" as const;
-      // A Serve mapping to another app also answers 2xx; only a GOAT descriptor proves this server.
+      // Another app or another GOAT server can hold the Serve port; only our own descriptor counts.
       const descriptor = yield* HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)(
         response,
       ).pipe(Effect.option);
-      return Option.isSome(descriptor) ? ("ok" as const) : ("not-goat" as const);
+      return Option.isSome(descriptor) && descriptor.value.environmentId === input.environmentId
+        ? ("ok" as const)
+        : ("not-goat" as const);
     }).pipe(
       Effect.timeoutOption(input.timeout ?? TAILSCALE_PROBE_TIMEOUT),
       Effect.match({
@@ -543,7 +549,11 @@ export const classifyTailscaleHttpsEndpoint = Effect.fn("tailscale.classifyTails
 );
 
 export const probeTailscaleHttpsEndpoint = Effect.fn("tailscale.probeTailscaleHttpsEndpoint")(
-  function* (input: { readonly baseUrl: string; readonly timeout?: Duration.Input }) {
+  function* (input: {
+    readonly baseUrl: string;
+    readonly environmentId: string;
+    readonly timeout?: Duration.Input;
+  }) {
     return (yield* classifyTailscaleHttpsEndpoint(input)) === "ok";
   },
 );

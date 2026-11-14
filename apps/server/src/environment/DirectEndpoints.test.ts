@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { EnvironmentId } from "@goat/contracts";
 import { it as effectIt } from "@effect/vitest";
 import type * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
@@ -16,6 +17,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import * as ServerConfig from "../config.ts";
 import * as DirectEndpoints from "./DirectEndpoints.ts";
+import * as ServerEnvironment from "./ServerEnvironment.ts";
 import { resolveBoundEndpoints } from "./DirectEndpoints.ts";
 
 const INTERFACES: ReturnType<typeof NodeOS.networkInterfaces> = {
@@ -282,6 +284,11 @@ const layerServeConfig = Layer.effect(
 ).pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "goat-direct-" })),
   Layer.provide(NodeServices.layer),
+  Layer.merge(
+    Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+      getEnvironmentId: Effect.succeed(EnvironmentId.make("serve-test")),
+    }),
+  ),
 );
 
 const resolveWithServe = (probeStatus: number) =>

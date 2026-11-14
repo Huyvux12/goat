@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import { HttpClient } from "effect/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as HostProcess from "@goat/shared/HostProcess";
 
@@ -187,5 +187,42 @@ Start Port    End Port
         "Tailscale HTTPS is on, but Tailscale is not answering. Check that Tailscale is running and signed in on this computer.",
       );
     }),
+  );
+
+  it.effect("offers Tailscale HTTPS only when Serve reaches this desktop's backend", () =>
+    Effect.gen(function* () {
+      const magicDnsStatus = (servedEnvironmentId: string) =>
+        resolveTailscaleAdvertisedEndpoints({
+          port: 3773,
+          serveEnabled: true,
+          networkInterfaces: {},
+          statusJson: `{"Self":{"DNSName":"desktop.example.ts.net.","TailscaleIPs":[]}}`,
+        }).pipe(
+          Effect.map((endpoints) => endpoints.map((endpoint) => endpoint.status)),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    environmentId:
+                      new URL(request.url).hostname === "127.0.0.1"
+                        ? "desktop-backend"
+                        : servedEnvironmentId,
+                    label: "GOAT server",
+                    platform: { os: "linux", arch: "x64" },
+                    serverVersion: "0.1.9",
+                    capabilities: { repositoryIdentity: true },
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+
+      assert.deepEqual(yield* magicDnsStatus("desktop-backend"), ["available"]);
+      assert.deepEqual(yield* magicDnsStatus("another-server"), ["unavailable"]);
+    }).pipe(Effect.provide(layerUnusedTailscaleExternalServices)),
   );
 });
