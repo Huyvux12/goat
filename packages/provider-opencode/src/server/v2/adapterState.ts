@@ -121,6 +121,7 @@ export interface ThreadState {
   readonly sessionId: string;
   providerThread: OrchestrationV2ProviderThread;
   publishedBackgroundWork?: boolean;
+  sessionScopedBackground?: boolean;
   readonly imageJobs: Map<
     string,
     {

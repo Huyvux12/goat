@@ -75,6 +75,7 @@ export const openCodeFileUris = (
 
 export interface OpenCodeToolResult {
   readonly output: string | undefined;
+  readonly nativeTaskId?: string;
   readonly fileUrls?: ReadonlyArray<string>;
   readonly metadata: unknown;
 }

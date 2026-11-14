@@ -127,6 +127,11 @@ export const noOpenRequests: ReadonlyArray<ProviderReplayEntry> = [
   replyData("session.form.list", []),
 ];
 
+export const emptyShellInventory: ReadonlyArray<ProviderReplayEntry> = [
+  out("shell.list", "<any>"),
+  reply("shell.list", { location: { directory: WORK }, data: [] }),
+];
+
 const withInstructions = (
   entries: ReadonlyArray<ProviderReplayEntry>,
 ): ReadonlyArray<ProviderReplayEntry> => {
@@ -314,7 +319,9 @@ export const colorForm = {
 export const resumed = (
   entries: ReadonlyArray<ProviderReplayEntry>,
   options?: {
-    readonly version?: "2.2.5" | "2.2.6";
+    readonly version?: "2.2.1" | "2.2.5" | "2.2.6";
+    readonly shellRecovery?: ReadonlyArray<ProviderReplayEntry>;
+    readonly lastRunOrdinal?: number;
     readonly goal?: OrchestrationV2ProviderThread["goal"];
     readonly external?: boolean;
     readonly supervised?: boolean;
@@ -338,6 +345,14 @@ export const resumed = (
         ...(options?.version === "2.2.5" || options?.version === "2.2.6"
           ? [out("rpc.call", "<any>"), reply("rpc.call", { output: null })]
           : []),
+        ...(options?.shellRecovery ??
+          (options?.version === undefined
+            ? []
+            : [
+                ...(options.version === "2.2.6"
+                  ? [out("job.list", { kind: "shell" }), reply("job.list", { data: [] })]
+                  : emptyShellInventory),
+              ])),
         ...withInstructions([
           ...(options?.supervised === true
             ? [
@@ -374,6 +389,9 @@ export const resumed = (
     const thread = yield* runtime.resumeThread({
       providerThread: {
         ...providerThread(yield* DateTime.now),
+        ...(options?.lastRunOrdinal === undefined
+          ? {}
+          : { lastRunOrdinal: options.lastRunOrdinal }),
         ...(options?.goal === undefined ? {} : { goal: options.goal }),
       },
       threadId,

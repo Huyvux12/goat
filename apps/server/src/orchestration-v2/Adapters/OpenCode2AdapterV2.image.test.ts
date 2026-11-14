@@ -162,7 +162,14 @@ it.layer(McpProviderSessions.layer)("OpenCode2 image jobs", (it) => {
                 ],
               });
               if (source !== "history")
-                frames.splice(2, 0, out("rpc.call", "<any>"), reply("rpc.call", { output: null }));
+                frames.splice(
+                  2,
+                  0,
+                  out("rpc.call", "<any>"),
+                  reply("rpc.call", { output: null }),
+                  out("job.list", { kind: "shell" }),
+                  reply("job.list", { data: [] }),
+                );
               return frames;
             })(),
             out("message.list", { sessionID: SESSION, type: "synthetic", limit: "100" }),
