@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type * as Scope from "effect/Scope";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { describe, expect, vi } from "vite-plus/test";
@@ -121,7 +122,96 @@ const makeTestPreviewWebContents = (
     capturePage,
   }) as unknown as Electron.WebContents;
 
+const makeListenedWebContents = () => {
+  const listeners = new Map<string, (...args: never[]) => void>();
+  const webContents = Object.assign(makeTestPreviewWebContents(unusedCapture), {
+    on: vi.fn((event: string, listener: (...args: never[]) => void) => {
+      listeners.set(event, listener);
+    }),
+    isFocused: vi.fn(() => true),
+    focusedFrame: {} as object | null,
+  });
+  return { listeners, webContents };
+};
+
+const unusedCapture = async (): Promise<TestCapturedPreviewImage> => {
+  throw new Error("This test captures no page.");
+};
+
+const withManager = <A>(
+  use: (
+    manager: PreviewManager.PreviewManager["Service"],
+  ) => Effect.Effect<A, PreviewManager.PreviewManagerError, Scope.Scope>,
+) =>
+  Effect.gen(function* () {
+    const manager = yield* PreviewManager.PreviewManager;
+    return yield* use(manager);
+  }).pipe(Effect.provide(managerLayer()), Effect.scoped);
+
 describe("PreviewManager guest events", () => {
+  effectIt.effect("keeps mouse back and forward buttons inside the preview tab", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const preview = makeListenedWebContents();
+        const goBack = vi.fn();
+        const goForward = vi.fn();
+        const send = vi.fn();
+        let canGoBack = false;
+        Object.assign(preview.webContents, {
+          navigationHistory: {
+            canGoBack: () => canGoBack,
+            canGoForward: () => true,
+            goBack,
+            goForward,
+          },
+          getZoomFactor: () => 2,
+          send,
+        });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_mouse_navigation");
+        yield* manager.registerWebview("tab_mouse_navigation", 42);
+
+        // Electron reports thumb buttons as "back"/"forward" for every frame of the guest, iframes included.
+        const beforeMouse = preview.listeners.get("before-mouse-event");
+        expect(beforeMouse, "guest has no before-mouse-event listener").toBeDefined();
+        const press = (type: "mouseDown" | "mouseUp", button: string) => {
+          const preventDefault = vi.fn();
+          beforeMouse!({ preventDefault } as never, { type, button, x: 10, y: 10 } as never);
+          return preventDefault;
+        };
+
+        // At the start of tab history the press is still swallowed, or the host app goes back instead.
+        expect(press("mouseDown", "back")).toHaveBeenCalledOnce();
+        expect(press("mouseUp", "back")).toHaveBeenCalledOnce();
+        expect(goBack).not.toHaveBeenCalled();
+
+        canGoBack = true;
+        expect(press("mouseDown", "back")).toHaveBeenCalledOnce();
+        expect(goBack).not.toHaveBeenCalled();
+        expect(press("mouseUp", "back")).toHaveBeenCalledOnce();
+        expect(goBack).toHaveBeenCalledOnce();
+        expect(press("mouseDown", "forward")).toHaveBeenCalledOnce();
+        expect(press("mouseUp", "forward")).toHaveBeenCalledOnce();
+        expect(goForward).toHaveBeenCalledOnce();
+        for (const button of ["left", "right"]) {
+          expect(press("mouseDown", button)).not.toHaveBeenCalled();
+          expect(press("mouseUp", button)).not.toHaveBeenCalled();
+        }
+        expect(goBack).toHaveBeenCalledOnce();
+        expect(goForward).toHaveBeenCalledOnce();
+        // The guest replays dropped presses for human input and recordings, in CSS px.
+        expect(send.mock.calls.filter(([channel]) => channel === "preview:thumb-press")).toEqual([
+          ["preview:thumb-press", "down", 5, 5, 3],
+          ["preview:thumb-press", "up", 5, 5, 3],
+          ["preview:thumb-press", "down", 5, 5, 3],
+          ["preview:thumb-press", "up", 5, 5, 3],
+          ["preview:thumb-press", "down", 5, 5, 4],
+          ["preview:thumb-press", "up", 5, 5, 4],
+        ]);
+      }),
+    ),
+  );
+
   effectIt.effect("reports early and subsequent load failures for the current guest", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.DesktopBrowserHost;
