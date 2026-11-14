@@ -81,6 +81,7 @@ import { mergeProviderInstanceEnvironment } from "@goat/provider-core/server/ins
 import { goatOrchestrationSystemPrompt } from "@goat/provider-core/server/orchestrationInstructions";
 import { buildSessionRuntimeInstructions } from "./screenInstructions.ts";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
+import { dateTimeFromEpoch, toolCompletedAt, toolInput, toolStartedAt } from "./toolPartTimes.ts";
 import { readableProviderErrorMessage } from "./providerErrorMessage.ts";
 import * as IdAllocator from "@goat/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@goat/provider-core/server/failure";
@@ -492,11 +493,6 @@ function nativeThreadId(providerThread: OrchestrationV2ProviderThread): string {
   return nativeId;
 }
 
-function dateTimeFromEpoch(value: number | undefined, fallback: DateTime.Utc): DateTime.Utc {
-  if (value === undefined) return fallback;
-  return Option.getOrElse(DateTime.make(value), () => fallback);
-}
-
 function sdkResponseForRawLog(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   if ("data" in value) return { data: (value as { readonly data?: unknown }).data ?? null };
@@ -516,23 +512,6 @@ export function openCodeBoundaryAfterProviderTurn(
     .toSorted((left, right) => left.ordinal - right.ordinal)
     .map((turn) => turn.nativeTurnRef?.nativeId)
     .find((nativeId): nativeId is string => nativeId !== null && nativeId !== undefined);
-}
-
-function toolInput(part: ToolPart): Record<string, unknown> {
-  return part.state.input;
-}
-
-function toolStartedAt(part: ToolPart, now: DateTime.Utc): DateTime.Utc {
-  return dateTimeFromEpoch(
-    part.state.status === "pending" ? undefined : part.state.time.start,
-    now,
-  );
-}
-
-function toolCompletedAt(part: ToolPart, now: DateTime.Utc): DateTime.Utc | null {
-  return part.state.status === "completed" || part.state.status === "error"
-    ? dateTimeFromEpoch(part.state.time.end, now)
-    : null;
 }
 
 function makeProviderThread(input: {
