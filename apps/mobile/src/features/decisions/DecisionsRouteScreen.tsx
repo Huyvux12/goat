@@ -186,6 +186,8 @@ function FocusedDecisionsContent(props: {
                     Fill in the pending answers
                   </Text>
                   <PendingUserInputBody
+                    environmentId={current.ref.environmentId}
+                    threadId={current.ref.threadId}
                     pendingUserInput={userInput}
                     drafts={drafts}
                     disabled={!canOperateThread || paused}
