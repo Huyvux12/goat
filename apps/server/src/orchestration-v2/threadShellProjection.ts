@@ -17,6 +17,7 @@ import {
 import { threadPullRequestsOf } from "../sourceControl/threadPullRequests.ts";
 import type {
   OrchestrationV2PendingRuntimeRequestSummary,
+  OrchestrationV2Run,
   OrchestrationV2DomainEvent,
   OrchestrationV2ProjectedTurnItem,
   OrchestrationV2ShellThreadStatus,
@@ -137,17 +138,41 @@ export function isTurnItemAtOrBeforeRun(input: {
   return ordinal !== undefined && ordinal <= input.sourceRunOrdinal;
 }
 
+// Rollback stamps completedAt; a fork made after the rewind never received that run.
+function runRolledBackAt(run: Pick<OrchestrationV2Run, "status" | "completedAt">) {
+  return run.status === "rolled_back" ? run.completedAt : null;
+}
+
+function isRolledBackBeforeFork(
+  rolledBackAt: DateTime.Utc | null,
+  forkCreatedAt: DateTime.Utc,
+): boolean {
+  return rolledBackAt !== null && DateTime.isLessThan(rolledBackAt, forkCreatedAt);
+}
+
+export function forkInheritedRunOrdinals(
+  runs: ReadonlyArray<OrchestrationV2Run>,
+  forkCreatedAt: DateTime.Utc,
+): Map<RunId, number> {
+  return new Map(
+    runs
+      .filter((run) => !isRolledBackBeforeFork(runRolledBackAt(run), forkCreatedAt))
+      .map((run) => [run.id, run.ordinal]),
+  );
+}
+
 function visibleTurnItemsThroughRun(input: {
   readonly sourceProjection: OrchestrationV2ThreadProjection;
   readonly sourceSelectedTurnItemIds?: ReadonlySet<string> | undefined;
   readonly sourceRunId: NonNullable<OrchestrationV2TurnItem["runId"]>;
+  readonly forkCreatedAt: DateTime.Utc;
 }): Array<Omit<OrchestrationV2ProjectedTurnItem, "position">> {
   const sourceRun = input.sourceProjection.runs.find((run) => run.id === input.sourceRunId);
   if (sourceRun === undefined) {
     return [];
   }
 
-  const runOrdinalById = new Map(input.sourceProjection.runs.map((run) => [run.id, run.ordinal]));
+  const runOrdinalById = forkInheritedRunOrdinals(input.sourceProjection.runs, input.forkCreatedAt);
   const inheritedPrefix = input.sourceProjection.visibleTurnItems
     .filter(
       (row) => row.item.threadId !== input.sourceProjection.thread.id || row.item.type === "fork",
@@ -209,6 +234,7 @@ export function buildVisibleTurnItems(input: {
           sourceProjection: input.sourceProjection,
           sourceSelectedTurnItemIds: input.sourceSelectedTurnItemIds,
           sourceRunId: forkedFrom.runId,
+          forkCreatedAt: input.projection.thread.createdAt,
         });
   const markerItem = makeForkMarkerTurnItem({
     targetProjection: input.projection,
@@ -512,6 +538,11 @@ export function isActivityRunForShell(
   return isInterruptibleRunForShell(run) || run.status === "waiting";
 }
 
+export type ShellRun = {
+  readonly ordinal: number;
+  readonly rolledBackAt: DateTime.Utc | null;
+};
+
 export type ShellThreadState = {
   readonly thread: OrchestrationV2ThreadProjection["thread"];
   readonly latestRunId: RunId | null;
@@ -542,23 +573,28 @@ export type ShellThreadState = {
   readonly itemCount: number;
   readonly runlessItemCount: number;
   readonly updatedAt: OrchestrationV2ThreadProjection["updatedAt"];
-  readonly runOrdinalById: ReadonlyMap<RunId, number>;
+  readonly runsById: ReadonlyMap<RunId, ShellRun>;
   readonly itemCountByRunId: ReadonlyMap<RunId, number>;
 };
 
 function itemCountThroughRun(input: {
   readonly state: ShellThreadState;
   readonly runId: RunId;
+  readonly forkCreatedAt: DateTime.Utc;
 }): number {
-  const runOrdinal = input.state.runOrdinalById.get(input.runId);
+  const runOrdinal = input.state.runsById.get(input.runId)?.ordinal;
   if (runOrdinal === undefined) {
     return 0;
   }
 
   let count = input.state.thread.historyOrigin === "v1_import" ? input.state.runlessItemCount : 0;
   for (const [runId, itemCount] of input.state.itemCountByRunId) {
-    const itemRunOrdinal = input.state.runOrdinalById.get(runId);
-    if (itemRunOrdinal !== undefined && itemRunOrdinal <= runOrdinal) {
+    const itemRun = input.state.runsById.get(runId);
+    if (
+      itemRun !== undefined &&
+      itemRun.ordinal <= runOrdinal &&
+      !isRolledBackBeforeFork(itemRun.rolledBackAt, input.forkCreatedAt)
+    ) {
       count += itemCount;
     }
   }
@@ -602,7 +638,11 @@ export function visibleItemCountForShell(input: {
 
   return (
     inheritedPrefixCount +
-    itemCountThroughRun({ state: sourceState, runId: forkedFrom.runId }) +
+    itemCountThroughRun({
+      state: sourceState,
+      runId: forkedFrom.runId,
+      forkCreatedAt: state.thread.createdAt,
+    }) +
     1 +
     state.itemCount
   );

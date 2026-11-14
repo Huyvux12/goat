@@ -4,9 +4,11 @@ import {
   RunId,
   type OrchestrationV2ShellThreadStatus,
 } from "@goat/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import type * as SqlClient from "effect/sql/SqlClient";
 import type { ShellSnapshotOptions } from "./ProjectionStore.ts";
+import type { ShellRun } from "./threadShellProjection.ts";
 
 export type ShellSubscriberOptions = Pick<
   ShellSnapshotOptions,
@@ -459,6 +461,7 @@ export type ShellRunRow = {
   readonly thread_id: string;
   readonly run_id: string;
   readonly ordinal: number;
+  readonly rolled_back_at: string | null;
 };
 
 export type ShellRunItemCountRow = {
@@ -491,13 +494,16 @@ export const runMapsByThreadId = (input: {
   readonly runRows: ReadonlyArray<ShellRunRow>;
   readonly itemCountRows: ReadonlyArray<ShellRunItemCountRow>;
 }) => {
-  const runOrdinalsByThreadId = new Map<ThreadId, Map<RunId, number>>();
+  const runsByThreadId = new Map<ThreadId, Map<RunId, ShellRun>>();
   for (const row of input.runRows) {
     const threadId = ThreadId.make(row.thread_id);
     const runId = RunId.make(row.run_id);
-    const existing = runOrdinalsByThreadId.get(threadId) ?? new Map<RunId, number>();
-    existing.set(runId, row.ordinal);
-    runOrdinalsByThreadId.set(threadId, existing);
+    const existing = runsByThreadId.get(threadId) ?? new Map<RunId, ShellRun>();
+    existing.set(runId, {
+      ordinal: row.ordinal,
+      rolledBackAt: row.rolled_back_at === null ? null : DateTime.makeUnsafe(row.rolled_back_at),
+    });
+    runsByThreadId.set(threadId, existing);
   }
   const itemCountsByThreadId = new Map<ThreadId, Map<RunId, number>>();
   for (const row of input.itemCountRows) {
@@ -507,7 +513,7 @@ export const runMapsByThreadId = (input: {
     existing.set(runId, row.item_count);
     itemCountsByThreadId.set(threadId, existing);
   }
-  return { runOrdinalsByThreadId, itemCountsByThreadId };
+  return { runsByThreadId, itemCountsByThreadId };
 };
 
 export const shellItemCountMap = (rows: ReadonlyArray<ShellItemCountRow>) =>
