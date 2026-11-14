@@ -1,3 +1,6 @@
+import { compactionBlocksSteering } from "@goat/client-runtime/state/composer-dispatch";
+import { threadSteersDuringCompaction } from "@goat/client-runtime/state/thread-workflows";
+
 type CompactionTurnRow = {
   readonly item: {
     readonly type: string;
@@ -6,13 +9,17 @@ type CompactionTurnRow = {
   };
 };
 
-/** The open chat's compaction: a running compaction, or a /compact request not yet settled. */
+/**
+ * The open chat's compaction: a running compaction, or a /compact request not yet settled, and
+ * whether a follow-up can still steer the turn.
+ */
 export function chatCompactionState(input: {
   readonly turnItems: ReadonlyArray<CompactionTurnRow>;
   readonly activityRunId: string | undefined;
   readonly activeRunId: string | null | undefined;
   readonly compactRequestIsActive: boolean;
   readonly busy: boolean;
+  readonly projection: Parameters<typeof threadSteersDuringCompaction>[0];
 }) {
   const compactionSettled = input.turnItems.some(
     ({ item }) =>
@@ -30,7 +37,14 @@ export function chatCompactionState(input: {
       item.runId === input.activeRunId &&
       item.status === "running",
   );
-  const isCompacting =
-    input.busy && (compactionRunning || (input.compactRequestIsActive && !compactionSettled));
-  return { isCompacting };
+  const compactCommandIsActive = input.compactRequestIsActive && !compactionSettled;
+  const isCompacting = input.busy && (compactionRunning || compactCommandIsActive);
+  const canSteer = !compactionBlocksSteering({
+    compactCommandIsActive,
+    compactionRunning,
+    steersDuringCompaction: threadSteersDuringCompaction(input.projection),
+    run: input.projection?.runs.find((run) => run.id === input.activeRunId),
+    messages: input.projection?.messages,
+  });
+  return { isCompacting, canSteer };
 }

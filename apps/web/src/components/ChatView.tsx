@@ -1531,12 +1531,13 @@ export default function ChatView(props: ChatViewProps) {
       latestServerUserItem.attachments.length === 0 &&
       latestServerUserItem.runId === activeActivityRun?.runId &&
       !isLatestRunSettled(activeActivityRun, activeRuntime));
-  const { isCompacting } = chatCompactionState({
+  const { isCompacting, canSteer } = chatCompactionState({
     turnItems: serverVisibleTurnItems,
     activityRunId: activeActivityRun?.runId,
     activeRunId: activeRuntime?.activeRunId,
     compactRequestIsActive,
     busy: isSendBusy || phase === "connecting" || phase === "running",
+    projection: serverProjection,
   });
   const isWorking =
     phase === "running" ||
@@ -3818,7 +3819,7 @@ export default function ChatView(props: ChatViewProps) {
                                   isLocalDraftThread && activeProject === null
                                 }
                                 phase={phase}
-                                isCompacting={isCompacting}
+                                canSteer={canSteer}
                                 canInterrupt={canInterruptRunningThread}
                                 isConnecting={isConnecting}
                                 isSendBusy={
