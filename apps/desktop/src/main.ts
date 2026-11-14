@@ -311,6 +311,8 @@ const layerDesktopApplication = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(layerDesktopSnapShot),
   Layer.provideMerge(DesktopUpdates.layer),
+  // Updates closes the same tunnels the SSH IPC opens before quitAndInstall.
+  Layer.provideMerge(layerDesktopSsh),
   Layer.provideMerge(DesktopCuaDriver.layer),
   Layer.provideMerge(layerDesktopWslBackend),
   Layer.provideMerge(layerDesktopLocalEnvironmentAuth),

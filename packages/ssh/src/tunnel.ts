@@ -337,6 +337,8 @@ export interface SshEnvironmentManagerShape
   readonly disconnectEnvironment: (
     target: DesktopSshEnvironmentTarget,
   ) => Effect.Effect<void, SshEnvironmentEffectError, SshEnvironmentEffectContext>;
+  /** Closes every local forward, as the manager's scope finalizer does, and keeps the manager open. */
+  readonly closeAllTunnels: Effect.Effect<void>;
   /**
    * Checks every open local forward and closes the ones that no longer
    * answer, so the next ensure opens a fresh forward instead of handing out
@@ -2549,6 +2551,15 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       remotePort: entry.remotePort,
     });
   });
+  const closeAllTunnels = Effect.sync(() => [...tunnels.values()]).pipe(
+    Effect.flatMap((entries) =>
+      Effect.all([
+        Effect.forEach(entries, closeTunnelEntry, { concurrency: "unbounded" }),
+        routes.closeAll(),
+      ]),
+    ),
+    Effect.ignore,
+  );
   yield* Scope.addFinalizer(
     managerScope,
     Effect.sync(() => {
@@ -4839,6 +4850,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
     forgetEnvironment: withSharing(forgetEnvironment),
     ensureEnvironment: withSharing(ensureEnvironment),
     disconnectEnvironment: withSharing(disconnectEnvironment),
+    closeAllTunnels,
     existingEnvironment: withSharing(routes.existingEnvironment),
     existingEnvironmentOther: withSharing(routes.existingEnvironmentOther),
     issueExistingMcpSession: withSharing(routes.issueExistingMcpSession),

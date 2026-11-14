@@ -51,6 +51,7 @@ describe("sshEnvironment", () => {
             forgetEnvironment: () => Effect.die("Unexpected forget"),
             disconnectEnvironment: () => Effect.die("unused"),
             revalidateTunnels: () => Effect.die("unused"),
+            closeAllTunnels: Effect.die("unused"),
             issueMcpClientSession: () => Effect.die("unused"),
             issueClientSession: () => Effect.die("unexpected client session"),
             runRemoteScript: () => Effect.die("unused"),

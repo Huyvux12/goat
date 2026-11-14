@@ -69,6 +69,7 @@ it.effect("shares the dispatch manager", () =>
         }),
       disconnectEnvironment: () => Effect.die("Unexpected disconnect"),
       revalidateTunnels: () => Effect.void,
+      closeAllTunnels: Effect.void,
       issueClientSession: () => Effect.die("unused"),
       issueMcpClientSession: () => Effect.die("Unexpected pairing/session mutation"),
       runRemoteScript: () => Effect.die("Unexpected remote command"),

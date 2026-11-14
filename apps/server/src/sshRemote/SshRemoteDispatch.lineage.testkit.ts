@@ -338,6 +338,7 @@ export const launchAgainst = (remote: {
       forgetEnvironment: () => Effect.die("Unexpected forget"),
       disconnectEnvironment: () => Effect.die("Unexpected SSH disconnect"),
       revalidateTunnels: () => Effect.void,
+      closeAllTunnels: Effect.void,
       issueClientSession: () => Effect.die("unused"),
       issueMcpClientSession: (_target, options) =>
         Effect.sync(() => {
