@@ -249,4 +249,59 @@ describe("makeManagedServerProvider usage conditions", () => {
         }),
       ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
+
+  it.effect.each([
+    { name: "omitted", keepsReportedUsage: undefined, percent: 40 },
+    { name: "drops", keepsReportedUsage: () => false, percent: 5 },
+  ])(
+    "a newer report made during a check that read usage outranks it only if kept ($name)",
+    ({ keepsReportedUsage, percent }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const reached = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const hold = yield* Ref.make(false);
+          const window = (usedPercent: number) =>
+            ({ id: "five_hour", kind: "session", label: "Session", usedPercent }) as const;
+          const provider = yield* makeManagedServerProvider<TestSettings>({
+            resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+            getSettings: Effect.succeed({ enabled: true }),
+            streamSettings: Stream.empty,
+            haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+            initialSnapshot: () => Effect.succeed(initialSnapshot),
+            checkProvider: Effect.flatMap(Ref.get(hold), (held) =>
+              held
+                ? Deferred.succeed(reached, undefined).pipe(
+                    Effect.andThen(Deferred.await(release)),
+                    Effect.as({
+                      ...refreshedSnapshot,
+                      checkedAt: "2026-04-10T00:00:05.000Z",
+                      usageLimits: { checkedAt: "2026-04-10T00:00:05.000Z", windows: [window(5)] },
+                    }),
+                  )
+                : Effect.succeed({
+                    ...refreshedSnapshot,
+                    usageLimits: { checkedAt: "2026-04-10T00:00:01.000Z", windows: [window(1)] },
+                  }),
+            ),
+            refreshOnInterval: false,
+            ...(keepsReportedUsage === undefined ? {} : { keepsReportedUsage }),
+          });
+          yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+          yield* Ref.set(hold, true);
+          const checking = yield* provider.refresh.pipe(Effect.forkChild);
+          yield* Deferred.await(reached);
+          yield* provider.applyUsageLimits({
+            checkedAt: "2026-04-10T00:00:06.000Z",
+            windows: [window(40)],
+          });
+          yield* Deferred.succeed(release, undefined);
+          const committed = yield* Fiber.join(checking);
+          assert.deepStrictEqual(
+            committed.usageLimits?.windows.map((shown) => shown.usedPercent),
+            [percent],
+          );
+        }),
+      ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
 });
