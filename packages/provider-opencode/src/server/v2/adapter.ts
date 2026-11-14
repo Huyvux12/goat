@@ -1,3 +1,4 @@
+import { OpenCode2ProviderCapabilities } from "./capabilities.ts";
 import {
   RECONNECT_ATTEMPTS,
   RECONNECT_DELAY,
@@ -55,7 +56,6 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2ExecutionNode,
-  type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderFailure,
   type OrchestrationV2ProviderRetry,
   type OrchestrationV2ProviderSession,
@@ -143,98 +143,6 @@ import {
   turnTokenUsage,
   type NativeTodoList,
 } from "./todoProjection.ts";
-
-const OpenCode2ProviderCapabilities = {
-  sessions: {
-    supportsMultipleProviderThreadsPerSession: true,
-    supportsModelSwitchInSession: true,
-    supportsProviderSwitchingViaHandoff: true,
-    supportsRuntimeModeSwitchInSession: true,
-    pendingRequestsSurviveRestart: false,
-  },
-  threads: {
-    canCreateEmptyThread: true,
-    canReadThreadSnapshot: true,
-    canRollbackThread: true,
-    canForkThread: true,
-    canForkFromTurn: true,
-    canForkFromSubagentThread: false,
-    exposesNativeThreadId: true,
-  },
-  turns: {
-    exposesNativeTurnId: false,
-    emitsTurnStarted: true,
-    emitsTurnCompleted: true,
-    supportsInterrupt: true,
-    supportsActiveSteering: true,
-    supportsSteeringByInterruptRestart: true,
-    supportsQueuedMessages: true,
-    terminalStatusQuality: "strong",
-  },
-  streaming: {
-    streamsAssistantText: true,
-    streamsReasoning: true,
-    streamsToolOutput: false,
-    streamsPlanText: false,
-    emitsMessageCompleted: true,
-  },
-  tools: {
-    exposesToolItemIds: true,
-    emitsToolStarted: true,
-    emitsToolCompleted: true,
-    emitsToolOutput: true,
-    supportsMcpTools: false,
-    supportsDynamicToolCallbacks: false,
-  },
-  approvals: {
-    supportsCommandApproval: true,
-    supportsFileReadApproval: true,
-    supportsFileChangeApproval: true,
-    supportsApplyPatchApproval: true,
-    approvalsHaveNativeRequestIds: true,
-    approvalCallbacksAreLiveOnly: true,
-    approvalsCanOriginateFromSubagents: true,
-  },
-  planning: {
-    emitsPlanUpdated: true,
-    emitsTodoList: true,
-    emitsProposedPlan: false,
-    supportsStructuredQuestions: true,
-    planDeltasHaveItemIds: false,
-  },
-  subagents: {
-    supportsSubagents: true,
-    exposesSubagentThreadIds: true,
-    emitsSubagentLifecycle: true,
-    canWaitForSubagents: true,
-    canCloseSubagents: false,
-    canForkSubagentThread: false,
-  },
-  context: {
-    acceptsSystemContext: false,
-    acceptsDeveloperContext: false,
-    acceptsSyntheticUserContext: true,
-    canGenerateSummaries: false,
-    canConsumeHandoffSummaries: true,
-    supportsDeltaHandoff: true,
-    supportsFullThreadHandoff: true,
-    maxRecommendedHandoffChars: null,
-  },
-  checkpointing: {
-    appCanCheckpointFilesystem: true,
-    supportsNestedCheckpointScopes: true,
-    providerCanRollbackConversation: true,
-    providerRollbackReturnsSnapshot: true,
-    providerCanReadConversationSnapshot: true,
-  },
-  identity: {
-    nativeThreadIds: "strong",
-    nativeTurnIds: "weak",
-    nativeItemIds: "strong",
-    nativeRequestIds: "strong",
-  },
-  runtimePolicy: { enforcement: "native" },
-} satisfies OrchestrationV2ProviderCapabilities;
 
 type EventOf<T extends OpenCodeEvent["type"]> = Extract<OpenCodeEvent, { readonly type: T }>;
 type Tokens = EventOf<"session.step.ended">["data"]["tokens"];
