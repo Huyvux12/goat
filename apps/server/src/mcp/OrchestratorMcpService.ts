@@ -181,6 +181,10 @@ const TERMINAL_THREAD_STATUSES: ReadonlySet<string> = new Set([
   "interrupted",
 ]);
 const DEFAULT_THREAD_READ_LIMIT = 50;
+// Claude Code saves MCP results over ~25k tokens to a file instead of showing them. Thread JSON
+// runs about 2 chars per token, so a read stops adding items here and reports the rest as more.
+const THREAD_READ_BUDGET_CHARS = 30_000;
+const encodeJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const DEFAULT_THREAD_RUN_LIMIT = 10;
 const DEFAULT_THREAD_ITEM_MAX_CHARS = 20_000;
 
@@ -3485,28 +3489,38 @@ const make = Effect.gen(function* () {
       if (
         (summary || input.tail !== undefined) &&
         (input.afterPosition !== undefined ||
+          input.beforePosition !== undefined ||
           input.itemId !== undefined ||
           (summary && input.tail !== undefined))
       )
         return yield* failure(
           "invalid_request",
-          "Pass view summary or tail, not both, and neither with afterPosition or itemId.",
+          "Pass view summary or tail, not both, and neither with afterPosition, beforePosition or itemId.",
         );
       const view = input.view === "activity" ? "activity" : "messages";
       const maxChars = input.maxCharsPerItem ?? DEFAULT_THREAD_ITEM_MAX_CHARS;
+      // Client callers (the CLI, linked environments) page forward from a cursorless read.
+      const newestFirst =
+        input.tail !== undefined ||
+        input.beforePosition !== undefined ||
+        (input.afterPosition === undefined && scope.thread !== undefined);
       const timeline = yield* threadManagement
         .getTimelinePage(input.threadId, {
-          afterPosition: input.afterPosition ?? -1,
+          ...(input.afterPosition === undefined ? {} : { afterPosition: input.afterPosition }),
+          ...(newestFirst && input.tail === undefined
+            ? { beforePosition: input.beforePosition ?? Number.POSITIVE_INFINITY }
+            : {}),
           limit: summary ? 0 : (input.tail ?? input.limit ?? DEFAULT_THREAD_READ_LIMIT),
           view,
           ...(input.tail === undefined ? {} : { tail: true }),
           ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
         })
         .pipe(Effect.mapError(threadManagementFailure));
-      const page = timeline.items;
       const taskSources = [
         ...new Set(
-          page.filter((row) => row.item.type === "subagent").map((row) => row.sourceThreadId),
+          timeline.items
+            .filter((row) => row.item.type === "subagent")
+            .map((row) => row.sourceThreadId),
         ),
       ];
       const tasksByThreadId = new Map(
@@ -3518,7 +3532,7 @@ const make = Effect.gen(function* () {
         ),
       );
       const messageIdsByThread = new Map<ThreadId, Array<MessageId>>();
-      for (const row of page) {
+      for (const row of timeline.items) {
         if (row.item.type !== "user_message" && row.item.type !== "assistant_message") continue;
         const ids = messageIdsByThread.get(row.sourceThreadId) ?? [];
         ids.push(row.item.messageId);
@@ -3534,6 +3548,37 @@ const make = Effect.gen(function* () {
         { concurrency: 1 },
       );
       const messagesByThreadId = new Map(sourceMessages);
+      const thread = View.threadDetail(
+        scope,
+        target,
+        timeline.totalItems,
+        shell,
+        yield* Clock.currentTimeMillis,
+      );
+      const recentRuns = target.runs
+        .toSorted((left, right) => right.ordinal - left.ordinal)
+        .slice(0, input.runLimit ?? (summary ? 1 : DEFAULT_THREAD_RUN_LIMIT))
+        .map(threadRun);
+      const allItems = timeline.items.map((row) =>
+        timelineItem({
+          row,
+          maxChars,
+          messagesByThreadId,
+          tasksByThreadId,
+          ...(input.itemId === undefined ? {} : { textOffset: input.textOffset ?? 0 }),
+        }),
+      );
+      // Keep the end of the page the caller is reading toward, and at least one item.
+      let size = encodeJsonText({ thread, recentRuns }).length;
+      let kept = 0;
+      for (const item of newestFirst ? allItems.toReversed() : allItems) {
+        size += encodeJsonText(item).length + 1;
+        if (kept > 0 && size > THREAD_READ_BUDGET_CHARS) break;
+        kept++;
+      }
+      const start = newestFirst ? allItems.length - kept : 0;
+      const items = allItems.slice(start, start + kept);
+      const page = timeline.items.slice(start, start + kept);
       const returnedRunIds = new Set(
         page.filter((row) => row.sourceThreadId === target.thread.id).map((row) => row.item.runId),
       );
@@ -3586,31 +3631,16 @@ const make = Effect.gen(function* () {
       const summaryDigest = summary ? yield* readSummary(shell, target, timeline.totalItems) : null;
       return {
         ...(cloudTask === undefined ? {} : { cloudTask }),
-        thread: View.threadDetail(
-          scope,
-          target,
-          timeline.totalItems,
-          shell,
-          yield* Clock.currentTimeMillis,
-        ),
-        recentRuns: target.runs
-          .toSorted((left, right) => right.ordinal - left.ordinal)
-          .slice(0, input.runLimit ?? (summary ? 1 : DEFAULT_THREAD_RUN_LIMIT))
-          .map(threadRun),
+        thread,
+        recentRuns,
         ...(summaryDigest === null ? {} : { summaryDigest }),
         ...(input.tail === undefined ? {} : { tailStartPosition: page[0]?.position ?? null }),
-        items: page.map((row) =>
-          timelineItem({
-            row,
-            maxChars,
-            messagesByThreadId,
-            tasksByThreadId,
-            ...(input.itemId === undefined ? {} : { textOffset: input.textOffset ?? 0 }),
-          }),
-        ),
-        nextPosition: page.at(-1)?.position ?? null,
+        items,
+        nextPosition: items.at(-1)?.position ?? null,
         // A summary returns no items, so there is nothing to page through.
-        hasMore: !summary && timeline.hasMore,
+        hasMore: !summary && (timeline.hasMore || (!newestFirst && kept < allItems.length)),
+        earlierPosition:
+          !summary && (timeline.hasEarlier || start > 0) ? (items[0]?.position ?? null) : null,
       } satisfies OrchestratorMcpThreadReadResult;
     }),
     acknowledgeChildRead: Effect.fn("OrchestratorMcpService.acknowledgeChildRead")(

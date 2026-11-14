@@ -24,6 +24,7 @@ import * as RestartCandidates from "./RestartContinuationCandidates.ts";
 import { needsRecovery } from "./ProjectionRecoveryCandidates.ts";
 import {
   matchingTimelineRows,
+  boundedTimelinePage,
   memoryTimelinePage,
   timelineAttachmentOwners,
 } from "./TimelineAttachment.ts";
@@ -527,9 +528,14 @@ export type ProjectionRecords<K extends ProjectionRecordField> = Pick<
   "thread" | K
 >;
 
+/**
+ * A page holds the oldest matches after \`afterPosition\`, or with \`beforePosition\` (or \`tail\`),
+ * the newest matches before it. \`itemId\` ignores both bounds.
+ */
 export interface ProjectionTimelinePageOptions {
   readonly attachmentId?: string;
   readonly afterPosition?: number;
+  readonly beforePosition?: number;
   readonly itemId?: TurnItemId;
   readonly view?: "messages" | "activity";
   readonly limit: number;
@@ -539,7 +545,10 @@ export interface ProjectionTimelinePageOptions {
 export interface ProjectionTimelinePage {
   readonly items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
   readonly totalItems: number;
+  /** Matches exist after the page. */
   readonly hasMore: boolean;
+  /** Matches exist before the page. */
+  readonly hasEarlier: boolean;
 }
 
 export interface ShellSnapshotOptions {
@@ -5608,11 +5617,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     index.visible.map((row) => row.sourceThreadId),
                     options.attachmentId,
                   );
-            const matching = matchingTimelineRows(index.visible, options, attachmentOwners);
-            const page =
-              options.tail === true
-                ? matching.slice(Math.max(0, matching.length - options.limit))
-                : matching.slice(0, options.limit);
+            const { page, hasMore, hasEarlier } = boundedTimelinePage(
+              matchingTimelineRows(
+                index.visible,
+                { ...options, afterPosition: -1 },
+                attachmentOwners,
+              ),
+              options,
+            );
             const sources = yield* encodeTimelineSources(
               page
                 .filter((row) => row.synthetic === undefined)
@@ -5670,7 +5682,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             return {
               items,
               totalItems: index.visible.length,
-              hasMore: options.tail !== true && matching.length > page.length,
+              hasMore,
+              hasEarlier,
             };
           }),
         )
