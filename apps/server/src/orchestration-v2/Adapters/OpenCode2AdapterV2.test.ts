@@ -225,13 +225,17 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       for (const [index, grant] of grants.entries()) {
         yield* sessions.set({ ...config, grantedScopes: grant });
         const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn({
-          ...turnInput(thread),
-          runOrdinal: index + 1,
-          providerTurnOrdinal: index + 1,
-          refreshMemoryContext: () =>
-            Effect.succeed(grant.includes("memory:read") ? snapshot : undefined),
-        });
+        const started = yield* runtime
+          .startTurn({
+            ...turnInput(thread),
+            runOrdinal: index + 1,
+            providerTurnOrdinal: index + 1,
+            refreshMemoryContext: () =>
+              Effect.succeed(grant.includes("memory:read") ? snapshot : undefined),
+          })
+          .pipe(Effect.forkScoped);
+        if (!external && index === 0) yield* TestClock.adjust("250 millis");
+        yield* Fiber.join(started);
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
         if (!external && grant.includes("memory:read")) {
           assert.include(
@@ -2533,26 +2537,36 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         promptAccepted,
         event("session.execution.succeeded", { sessionID: SESSION }),
       ];
+      const prompts: Array<unknown> = [];
       // Idle Location eviction drops OpenCode's runtime MCP servers without a reconnect.
-      const { runtime, thread } = yield* resumed([
-        add,
-        reply("mcp.add", null),
-        ...turn,
-        add,
-        reply("mcp.add", { status: 500, body: { message: "MCP unavailable" } }),
-        out("session.instructions.entry.put", {
-          sessionID: SESSION,
-          key: "goat",
-          value: noMcpInstructions(bigPickle.model),
-        }),
-        reply("session.instructions.entry.put", null),
-        ...turn,
-        out("mcp.remove", { server, "location[directory]": WORK }),
-        reply("mcp.remove", null),
-      ]);
+      const { runtime, thread } = yield* resumed(
+        [
+          add,
+          reply("mcp.add", null),
+          ...turn,
+          add,
+          reply("mcp.add", { status: 500, body: { message: "MCP unavailable" } }),
+          out("session.instructions.entry.put", {
+            sessionID: SESSION,
+            key: "goat",
+            value: noMcpInstructions(bigPickle.model),
+          }),
+          reply("session.instructions.entry.put", null),
+          ...turn,
+          out("mcp.remove", { server, "location[directory]": WORK }),
+          reply("mcp.remove", null),
+        ],
+        { onPrompt: (input) => prompts.push(input) },
+      );
       for (let index = 0; index < 2; index++) {
         const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn(turnInput(thread));
+        const started = yield* runtime.startTurn(turnInput(thread)).pipe(Effect.forkScoped);
+        if (index === 0) {
+          yield* TestClock.adjust("249 millis");
+          assert.lengthOf(prompts, 0, "prompted before OpenCode loaded the new MCP server's tools");
+          yield* TestClock.adjust("1 millis");
+        }
+        yield* Fiber.join(started);
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       }
     }).pipe(Effect.scoped),
@@ -2615,7 +2629,11 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         runtimePolicy: policy(),
       });
       const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.startTurn({ ...turnInput(thread), threadId: child });
+      const started = yield* runtime
+        .startTurn({ ...turnInput(thread), threadId: child })
+        .pipe(Effect.forkScoped);
+      yield* TestClock.adjust("250 millis");
+      yield* Fiber.join(started);
       assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       yield* runtime.unloadThread!({ providerThread: thread });
     }).pipe(Effect.scoped),
@@ -2776,7 +2794,11 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
               runtimePolicy: policy(),
             });
             const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-            yield* runtime.startTurn({ ...turnInput(thread), threadId: child });
+            const started = yield* runtime
+              .startTurn({ ...turnInput(thread), threadId: child })
+              .pipe(Effect.forkScoped);
+            yield* TestClock.adjust("250 millis");
+            yield* Fiber.join(started);
             assert.equal((yield* Fiber.join(terminal))?.status, "completed");
             yield* runtime.unloadThread!({ providerThread: thread });
             // Reaching here proves the HTTP replay consumed this add/remove pair.
