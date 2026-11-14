@@ -432,6 +432,7 @@ it.layer(layer)("OpenCode v2 memory generation", (it) => {
     } as unknown as OpenCode2Server.OpenCode2Connection["client"];
     const connection = {
       client,
+      usageLimits: () => Effect.die("Memory must not read usage limits"),
       imageJobs: () => Effect.die("Memory must not request image jobs"),
       readImage: () => Effect.die("Memory must not read images"),
       events: Effect.succeed(Stream.fromQueue(events)),
