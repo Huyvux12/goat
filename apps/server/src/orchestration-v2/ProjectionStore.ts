@@ -613,6 +613,11 @@ export interface ProjectionStoreV2Shape
     limit: number,
   ) => Effect.Effect<ReadonlyArray<IgnoredServerActivity>, ServerActivityReadError>;
   readonly getMessageCount: (threadId: ThreadId) => Effect.Effect<number, ProjectionStoreV2Error>;
+  /** Bytes of tool output a transcript export is sure to hold, or 0 when it can fit in `limit`. */
+  readonly getTranscriptByteFloor: (
+    threadId: ThreadId,
+    limit: number,
+  ) => Effect.Effect<number, ProjectionStoreV2Error>;
   readonly getSubagentCount: (threadId: ThreadId) => Effect.Effect<number, ProjectionStoreV2Error>;
   /** Child threads of the thread's app-owned tasks, in task order, without decoding the tasks. */
   readonly listAppOwnedChildThreadIds: (
@@ -852,6 +857,7 @@ export interface ProjectionStoreV2Shape
     },
     ProjectionStoreV2Error
   >;
+  /** Context handoffs come without `history` and `delivery`; no window reader uses them. */
   readonly getThreadSnapshotWindow: (
     threadId: ThreadId,
     options: {
@@ -3053,7 +3059,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 WHERE thread_id = ${threadId} ORDER BY rowid ASC
               `
               : sql<PayloadRow>`
-                SELECT payload_json FROM orchestration_v2_projection_context_handoffs AS handoff
+                -- Megabytes on a long thread, and projectContextHandoffForWire drops both.
+                SELECT json_remove(payload_json, '$.history', '$.delivery') AS payload_json
+                FROM orchestration_v2_projection_context_handoffs AS handoff
                 WHERE handoff.thread_id = ${threadId}
                   AND (
                     handoff.status IN ('pending', 'ready')
@@ -4942,6 +4950,41 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.map((rows) => rows[0]?.count ?? 0),
         Effect.mapError(controlReadError(threadId)),
       );
+    // Tool output reaches the export unchanged, so the bytes of its text, also inside a structured
+    // result, are a floor for the export. Other stored bytes are not: decoding drops fields. A
+    // rolled back run is the only way the export hides a tool row, and rows a fork inherits only
+    // add to it. The output sum parses payloads, so it runs only when the tool rows exceed `limit`.
+    const getTranscriptByteFloor: ProjectionStoreV2Shape["getTranscriptByteFloor"] = (
+      threadId,
+      limit,
+    ) =>
+      sql<{ bytes: number }>`
+        WITH tool_rows AS (
+          SELECT payload_json FROM orchestration_v2_projection_turn_items
+          WHERE thread_id = ${threadId}
+            AND type IN ('command_execution', 'dynamic_tool')
+            AND (run_id IS NULL OR run_id NOT IN (
+              SELECT run_id FROM orchestration_v2_projection_runs
+              WHERE thread_id = ${threadId} AND status = 'rolled_back'
+            ))
+        )
+        SELECT CASE
+          WHEN (SELECT COALESCE(SUM(octet_length(payload_json)), 0) FROM tool_rows) <= ${limit}
+            THEN 0
+          ELSE (
+            -- json_valid is false past SQLite's nesting limit, where json_tree would fail.
+            SELECT COALESCE(SUM(CASE WHEN json_valid(payload_json) THEN (
+              SELECT COALESCE(SUM(octet_length(leaf.value)), 0)
+              FROM json_tree(tool_rows.payload_json, '$.output') AS leaf
+              WHERE leaf.type = 'text'
+            ) ELSE 0 END), 0)
+            FROM tool_rows
+          )
+        END AS bytes
+      `.pipe(
+        Effect.map((rows) => rows[0]?.bytes ?? 0),
+        Effect.mapError(controlReadError(threadId)),
+      );
     const getSubagentCount: ProjectionStoreV2Shape["getSubagentCount"] = (threadId) =>
       sql<{
         count: number;
@@ -6546,6 +6589,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ),
       isNodeStored: readOnReader(isNodeStored, true),
       getMessageCount: readOnReader(getMessageCount),
+      getTranscriptByteFloor: readOnReader(getTranscriptByteFloor),
       getSubagentCount: readOnReader(getSubagentCount),
       listAppOwnedChildThreadIds: readOnReader(listAppOwnedChildThreadIds),
       getNextTurnItemOrdinal: readOnReader(getNextTurnItemOrdinal),
@@ -7700,6 +7744,36 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
         const run = projection.runs.find((candidate) => candidate.id === runId);
         return projection.messages.find((message) => message.id === run?.userMessageId);
       }),
+      getTranscriptByteFloor: Effect.fn("ProjectionStore.getTranscriptByteFloor")(
+        function* (threadId, limit) {
+          const projection = (yield* Ref.get(replayState)).projections.get(threadId);
+          if (projection === undefined) return 0;
+          const rolledBack = new Set(
+            projection.runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
+          );
+          const tools = projection.turnItems.filter(
+            (item) =>
+              (item.type === "command_execution" || item.type === "dynamic_tool") &&
+              (item.runId === null || !rolledBack.has(item.runId)),
+          );
+          const bytes = (value: unknown): number =>
+            typeof value === "string"
+              ? Buffer.byteLength(value)
+              : typeof value === "object" && value !== null
+                ? Object.values(value).reduce<number>((sum, entry) => sum + bytes(entry), 0)
+                : 0;
+          const stored = tools.reduce(
+            (sum, item) => sum + Buffer.byteLength(JSON.stringify(item)),
+            0,
+          );
+          return stored <= limit
+            ? 0
+            : tools.reduce(
+                (sum, item) => sum + bytes("output" in item ? item.output : undefined),
+                0,
+              );
+        },
+      ),
       getRun: Effect.fn("ProjectionStore.getRun")(function* (threadId, runId) {
         const projection = (yield* Ref.get(replayState)).projections.get(threadId);
         if (projection === undefined)
