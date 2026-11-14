@@ -62,3 +62,24 @@ it("keeps the tool while typing a tool key in the comment", () => {
 
   expect(document.documentElement.getAttribute("data-goat-annotation-tool")).toBe("select");
 });
+
+it("keeps the annotation when Escape dismisses an IME candidate in the comment", () => {
+  const shadowRoot = startAnnotation();
+  const comment = shadowRoot.querySelector("textarea");
+  if (!comment) throw new Error("comment textarea not found");
+
+  comment.value = "draft";
+  comment.focus();
+  comment.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Escape",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }),
+  );
+
+  expect(shadowRoot.host.isConnected).toBe(true);
+  expect(comment.value).toBe("draft");
+});
