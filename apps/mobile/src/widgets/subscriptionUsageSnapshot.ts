@@ -49,6 +49,7 @@ export function createWidgetRefresher<Id>(refresh: (id: Id) => Promise<unknown>)
 const observedAt = (account: LimitAccount) =>
   Date.parse(account.observedAt ?? account.limits.checkedAt);
 
+// A reset at or before its account's observation already happened, so it cannot expire the snapshot.
 const isUpcoming = (reset: LimitPoolWindow["resets"][number]) =>
   reset.at > observedAt(reset.member.account);
 
