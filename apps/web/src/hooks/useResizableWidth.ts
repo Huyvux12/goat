@@ -3,6 +3,7 @@ import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useState } fro
 
 import { getLocalStorageItem, setLocalStorageItem } from "./useLocalStorage";
 import { useResizeDrag } from "./useResizeDrag";
+import { useStableCallback } from "./useStableCallback";
 
 const WidthSchema = Schema.Finite;
 
@@ -54,6 +55,9 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   }
 
   const clampedWidth = clamp(widthState.width);
+  const restoreWidth = useStableCallback((host: HTMLElement | null) => {
+    host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${clampedWidth}px`);
+  });
 
   const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
@@ -71,7 +75,11 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${nextWidth}px`);
         return nextWidth;
       },
-      finish(finalWidth) {
+      finish(finalWidth, moved) {
+        if (!moved) {
+          restoreWidth(host);
+          return;
+        }
         setWidthState({ storageKey: startStorageKey, width: finalWidth });
         try {
           setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
