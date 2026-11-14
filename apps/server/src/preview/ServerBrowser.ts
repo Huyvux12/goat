@@ -86,7 +86,7 @@ import { settleInitialOpen } from "./unloadedOpen.ts";
 import * as AgentTabState from "./agentTabState.ts";
 import { answerBy, answerCall, queueCaptureBy, waitInput, withCaptureLock } from "./CaptureLock.ts";
 import { downloadJournal, downloadsOf, journalDownload } from "./downloadJournal.ts";
-import { recordingEncoderScript } from "./ServerBrowserRecordingScript.ts";
+import { type EncoderWindow, recordingEncoderScript } from "./ServerBrowserRecordingScript.ts";
 import {
   browserSessionView,
   markUsed,
@@ -253,15 +253,6 @@ interface ViewerState {
   scrolledAt: number;
 
   requestedSize: { width: number; height: number; order: number } | null;
-}
-
-interface EncoderWindow {
-  __goatRecorder: {
-    cursor(x: number, y: number, click: boolean): void;
-    frame(data: string, width: number): Promise<boolean>;
-    stop(): Promise<{ mimeType: string | null; count: number; bytes: number }>;
-    chunk(index: number): Promise<string>;
-  };
 }
 
 interface Recording {
