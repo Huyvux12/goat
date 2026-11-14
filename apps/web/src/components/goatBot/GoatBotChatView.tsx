@@ -10,9 +10,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
+import { useGoatBotHomePresentation } from "./goatBotLayout";
 
-import { useMediaQuery } from "~/hooks/useMediaQuery";
-import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "~/rightPanelLayout";
 import { cn } from "~/lib/utils";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { GoatBotFileViewer } from "./GoatBotFileViewer";
@@ -131,6 +130,8 @@ export interface GoatBotChatViewProps {
   readonly canOpenCurrentBot?: boolean | undefined;
   /** The environment whose bot history is shown, which can differ from a new home during a move. */
   readonly environmentId?: EnvironmentId | null | undefined;
+  /** A task replaces the chat: it stays mounted for its draft, but shows no Home and holds nothing. */
+  readonly hidden?: boolean | undefined;
 }
 
 /** GOAT Bot as a messenger: bubbles and work cards, never tool calls. */
@@ -180,6 +181,7 @@ function GoatBotChatViewContent({
   onCheckAgain,
   openHome = null,
   onHomeHandled,
+  hidden = false,
 }: GoatBotChatViewProps & { readonly source: ReturnType<typeof useGoatBotSource> }) {
   const member = useGoatBotMember();
   const [panelOpen, setPanelOpen] = useState(false);
@@ -188,7 +190,8 @@ function GoatBotChatViewContent({
   const title = useGoatBotName();
   const mainName = useGoatBotMainName();
   const picture = useGoatBotPicture();
-  const narrow = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const { viewRef, presentation } = useGoatBotHomePresentation(hidden);
+  const narrow = presentation === "sheet";
   const bot = availability.kind === "ready" ? availability.bot : null;
   const routineLanding = useGoatBotRoutineLanding(bot, panelOpen, () => setPanelOpen(true));
   const removed = removal !== null;
@@ -377,7 +380,7 @@ function GoatBotChatViewContent({
             ? null
             : statusLine(availability);
   return (
-    <div className="flex min-h-0 min-w-0 flex-1" style={accentStyle}>
+    <div ref={viewRef} className="flex min-h-0 min-w-0 flex-1" style={accentStyle}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         <WorkspacePageHeader electron={isElectron} className="surface-glass relative">
           <div aria-hidden className="flex-1 basis-0" />
@@ -497,7 +500,7 @@ function GoatBotChatViewContent({
           {/* The conversation stays mounted under an open file, so closing it keeps its place. */}
           <div className={cn("flex min-h-0 flex-1 flex-col", shownFile !== null && "hidden")}>
             {/* An open file covers the conversation, so its activity lines stop reading. */}
-            <GoatBotStepsReader rows={rows} paused={shownFile !== null}>
+            <GoatBotStepsReader rows={rows} paused={shownFile !== null || hidden}>
               <GoatBotOpenFileContext value={fileOpening}>
                 {rows.length > 0 ? (
                   // History stays readable while the bot is unavailable; only sending stops.
@@ -583,6 +586,7 @@ function GoatBotChatViewContent({
             key={seed?.nonce ?? 0}
             initialText={seed?.text ?? ""}
             disabled={!canSend}
+            hidden={hidden}
             botName={title}
             placeholder={
               canSend
@@ -606,7 +610,7 @@ function GoatBotChatViewContent({
           />
         </div>
       </div>
-      {bot && panelOpen && !narrow && (
+      {bot && panelOpen && presentation === "docked" && (
         <aside aria-label={`${title} work`} className="flex w-88 shrink-0 border-l border-border">
           <GoatBotWorkPanel
             key={homeKey}

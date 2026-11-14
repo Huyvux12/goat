@@ -1,11 +1,13 @@
 import { forgetNewBotEnvironment, newBotSlot, startNewBot } from "@goat/client-runtime/goatBot";
 import { BotId, ChannelTaskId, EnvironmentId, OrchestrationV2TurnItemJson } from "@goat/contracts";
 import * as Schema from "effect/Schema";
+import { Profiler } from "react";
 import { expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "../../test/render";
+import { observeResize } from "../lib/observeResize";
 
 const state = vi.hoisted(() => ({
-  narrow: false,
   beside: true,
   supported: true,
   task: undefined as string | undefined,
@@ -22,7 +24,6 @@ const state = vi.hoisted(() => ({
   sessionReads: [] as Array<string>,
   boundedSnapshots: true,
 }));
-vi.mock("../hooks/useMediaQuery", () => ({ useMediaQuery: () => state.narrow }));
 vi.mock("../hooks/useSettings", () => ({ useClientSettings: () => state.beside }));
 vi.mock("../state/entities", () => ({
   useThreadShell: (ref: unknown) => {
@@ -62,16 +63,22 @@ vi.mock("../state/threads", async (importOriginal) => {
     },
   };
 });
-// The real chat reads its steps through GoatBotStepsReader around its conversation.
+// The real chat reads its steps through GoatBotStepsReader around its conversation, paused while
+// hidden, and its composer keeps a draft in its own state.
 vi.mock("../components/goatBot/GoatBotChatView", async () => {
   const { GoatBotStepsReader } = await import("../components/goatBot/GoatBotStepsProvider");
   return {
-    GoatBotChatView: (props: { removal?: string | null; onRestore?: () => void }) => {
+    GoatBotChatView: (props: {
+      removal?: string | null;
+      onRestore?: () => void;
+      hidden?: boolean;
+    }) => {
       state.chatSession = props;
       return (
-        <GoatBotStepsReader rows={[]}>
+        <GoatBotStepsReader rows={[]} paused={props.hidden ?? false}>
           <div>
             Main chat
+            <input aria-label="Message" />
             {props.removal === "deleted" ? <span>Chat removed</span> : null}
             {props.onRestore ? (
               <button type="button" onClick={props.onRestore}>
@@ -90,7 +97,14 @@ vi.mock("../components/goatBot/useBotManage", () => ({
 vi.mock("../components/goatBot/GoatBotTaskPane", () => ({
   GoatBotTaskPane: ({ narrow, session }: { narrow: boolean; session: object }) => {
     state.paneSession = session;
-    return <div>{narrow ? "Back to Tasks" : "Close"}</div>;
+    return (
+      <section>
+        <h2 tabIndex={-1} data-goat-bot-task-heading>
+          Task heading
+        </h2>
+        <div>{narrow ? "Back to Tasks" : "Close"}</div>
+      </section>
+    );
   },
 }));
 vi.mock("../components/goatBot/useGoatBotSession", () => ({
@@ -124,38 +138,133 @@ vi.mock("@tanstack/react-router", async (original) => ({
 import { GoatBotTaskRoute, Route } from "./_chat.bot";
 import type { useGoatBotSession } from "../components/goatBot/useGoatBotSession";
 
+/** The test window's width, which decides the 980px gate; restored on dispose. */
+async function windowWidth(width: number) {
+  const before = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(width, 900);
+  return { [Symbol.asyncDispose]: () => page.viewport(before.width, before.height) };
+}
+
+/** A container that sizes the route's row, as the sidebar leaves it. */
+function row(width: number) {
+  const container = document.createElement("div");
+  container.style.width = `${width}px`;
+  return container;
+}
+
+const taskRoute = (
+  <GoatBotTaskRoute
+    environmentId={EnvironmentId.make("env")}
+    session={{ visibleTurnItems: [], rows: [] } as unknown as ReturnType<typeof useGoatBotSession>}
+    taskId={ChannelTaskId.make("task")}
+  />
+);
+
 it.each([
-  { narrow: false, beside: true, overlay: false },
-  { narrow: true, beside: true, overlay: true },
-  { narrow: false, beside: false, overlay: true },
+  { window: 1440, width: 720, setting: true, overlay: false },
+  { window: 1440, width: 719, setting: true, overlay: true },
+  { window: 960, width: 1600, setting: true, overlay: true },
+  { window: 1440, width: 1128, setting: false, overlay: true },
 ])(
-  "chooses task layout for viewport and client preference %#",
-  async ({ narrow, beside, overlay }) => {
-    state.narrow = narrow;
-    state.beside = beside;
-    await using screen = await render(
-      <GoatBotTaskRoute
-        environmentId={EnvironmentId.make("env")}
-        session={
-          { visibleTurnItems: [], rows: [] } as unknown as ReturnType<typeof useGoatBotSession>
-        }
-        taskId={ChannelTaskId.make("task")}
-      />,
-      { router: false },
-    ); // Navigation is not exercised here.
+  "the task sits beside the chat only while the chat keeps 400px: window $window, row $width, setting $setting",
+  async ({ window, width, setting, overlay }) => {
+    state.beside = setting;
+    await using _window = await windowWidth(window);
+    // Navigation is not exercised here.
+    await using screen = await render(taskRoute, { router: false, container: row(width) });
     await expect.element(screen.getByText(overlay ? "Back to Tasks" : "Close")).toBeVisible();
-    if (overlay) expect(screen.getByText("Main chat").query()).toBeNull();
+    if (overlay) await expect.element(screen.getByText("Main chat")).not.toBeVisible();
     else await expect.element(screen.getByText("Main chat")).toBeVisible();
   },
 );
 
+it("a draft in the chat survives the task replacing it and the chat coming back", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "Keep this draft");
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  container.style.width = "1000px";
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await expect
+    .element(screen.getByRole("textbox", { name: "Message" }))
+    .toHaveValue("Keep this draft");
+});
+
+it("focus in the chat moves to the task heading when the task replaces it; focus elsewhere stays", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(
+    <>
+      <button type="button">Search</button>
+      {taskRoute}
+    </>,
+    { router: false, container }, // No navigation.
+  );
+  const message = screen.getByRole("textbox", { name: "Message" });
+  await userEvent.click(message);
+  container.style.width = "700px";
+  await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+
+  container.style.width = "1000px";
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Search" }));
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Search" })).toHaveFocus();
+});
+
+it("the window narrowing past 980px alone also replaces the chat and hands focus to the task", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  await using screen = await render(taskRoute, { router: false, container: row(925) }); // No navigation.
+  await userEvent.click(screen.getByRole("textbox", { name: "Message" }));
+  await page.viewport(979, 900);
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+});
+
+it("performance invariant: sweeping the window from 1440 to 960 commits the route once per threshold at most", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const sidebar = 312;
+  const container = row(1440 - sidebar);
+  let commits = 0;
+  await using screen = await render(
+    <Profiler id="task-route" onRender={() => commits++}>
+      {taskRoute}
+    </Profiler>,
+    { router: false, container }, // No navigation.
+  );
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  let resized = () => {};
+  const stop = observeResize(container, () => resized());
+  try {
+    commits = 0;
+    for (let width = 1424; width >= 960; width -= 16) {
+      await page.viewport(width, 900);
+      const delivered = new Promise<void>((resolve) => (resized = resolve));
+      container.style.width = `${width - sidebar}px`;
+      await delivered;
+    }
+  } finally {
+    stop();
+  }
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  expect(commits).toBeGreaterThan(0);
+  expect(commits).toBeLessThanOrEqual(2);
+});
+
 it("shares the entry session between main chat and task pane", async () => {
-  state.narrow = false;
   state.beside = true;
   state.supported = true;
   state.sessions = [];
   state.chatSession = null;
   state.paneSession = null;
+  await using _window = await windowWidth(1440);
   using _search = vi
     .spyOn(Route, "useSearch")
     .mockReturnValue({ task: ChannelTaskId.make("task") });
@@ -188,6 +297,7 @@ it("opens a member's task with that member's own conversation, never the main bo
   state.supported = true;
   state.shellRefs = [];
   state.memberArgs = [];
+  await using _window = await windowWidth(1440);
   state.bots = [
     { botId: "research", role: "member", environmentId: "env", sessionThreadId: "thread-research" },
   ];
@@ -258,10 +368,10 @@ it("opens a bot the create just returned when the list read after it failed, ins
 });
 
 it("a deleted member's task beside its chat shows the chat as deleted and offers Restore", async () => {
-  state.narrow = false;
   state.beside = true;
   state.supported = true;
   state.restore.mockClear();
+  await using _window = await windowWidth(1440);
   const deleted = {
     botId: "research",
     role: "member",
@@ -333,27 +443,28 @@ const turnChip = (() => {
 })();
 
 it.each([
-  { narrow: true, bounded: true, reads: [] },
-  { narrow: false, bounded: true, reads: ["goat-bot-session:s1"] },
-  { narrow: false, bounded: false, reads: [] },
+  { width: 700, bounded: true, reads: [] },
+  { width: 1128, bounded: true, reads: ["goat-bot-session:s1"] },
+  { width: 1128, bounded: false, reads: [] },
 ])(
   "reads the main chat's turn sessions only while that chat shows beside the task, from a bounded server %#",
-  async ({ narrow, bounded, reads }) => {
-    state.narrow = narrow;
+  async ({ width, bounded, reads }) => {
     state.boundedSnapshots = bounded;
     state.beside = true;
     state.supported = true;
     state.bots = [];
     state.items = [turnChip];
     state.sessionReads = [];
+    await using _window = await windowWidth(1440);
     using _search = vi
       .spyOn(Route, "useSearch")
       .mockReturnValue({ task: ChannelTaskId.make("task") });
     const Component = Route.options.component;
     if (!Component) throw new Error("missing route component");
     try {
-      await using screen = await render(<Component />, { router: false }); // Search and navigation are mocked.
-      await expect.element(screen.getByText(narrow ? "Back to Tasks" : "Close")).toBeVisible();
+      // Search and navigation are mocked.
+      await using screen = await render(<Component />, { router: false, container: row(width) });
+      await expect.element(screen.getByText(width < 720 ? "Back to Tasks" : "Close")).toBeVisible();
       expect([...new Set(state.sessionReads)]).toEqual(reads);
     } finally {
       state.items = [];

@@ -31,6 +31,7 @@ import { goatBotHomeKey } from "./goatBotHomeRequest";
 import { useBotThreads } from "./useBotRoster";
 import { useGoatBotSession } from "./useGoatBotSession";
 import { focusTaskHeading, getTaskPaneFocus } from "./taskPaneFocus";
+import { GOAT_BOT_CHAT_MIN_WIDTH } from "./goatBotLayout";
 import { useBotTaskLookup } from "./useBotTaskLookup";
 import { useAcknowledgeTaskRead } from "./useAcknowledgeTaskRead";
 import type { GoatBotLocalSubmission } from "./useGoatBotFollow";
@@ -152,7 +153,8 @@ export function GoatBotTaskPane({
         narrow
           ? undefined
           : ({
-              width: `var(${RESIZABLE_WIDTH_PROPERTY})`,
+              // The chat beside keeps GOAT_BOT_CHAT_MIN_WIDTH; the stored width shows again when wider.
+              width: `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${GOAT_BOT_CHAT_MIN_WIDTH}px))`,
               [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
             } as CSSProperties)
       }
@@ -182,6 +184,7 @@ export function GoatBotTaskPane({
               render={
                 <h2
                   key={taskId}
+                  data-goat-bot-task-heading
                   className="min-w-0 flex-1 truncate font-semibold"
                   tabIndex={-1}
                   ref={headingRef}
