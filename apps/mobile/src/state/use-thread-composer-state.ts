@@ -47,9 +47,7 @@ import {
   type CodexFeedbackSubmission,
 } from "@goat/client-runtime/state/threads";
 import { resolveThreadWorkingStartedAt } from "@goat/client-runtime/state/models";
-import { upgradeLegacyContextMessage } from "@goat/shared/composerContextLegacy";
-import { composerContextSendBlockReason, reidentifyComposerContext } from "../lib/composerContext";
-import { uuidv4 } from "../lib/uuid";
+import { composerContextSendBlockReason } from "../lib/composerContext";
 
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
 import {
@@ -62,7 +60,6 @@ import {
   pasteComposerClipboard,
   removePersistedComposerAttachmentFile,
 } from "../lib/composerImages";
-import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { buildThreadFeed, createThreadFeedCache } from "../lib/threadActivity";
 import {
@@ -85,7 +82,6 @@ import {
   captureComposerDraftInsertion,
   countComposerDraftAttachmentsAfterSelection,
   insertComposerDraftText,
-  insertComposerDraftContext,
   clearComposerDraft,
   clearComposerDraftContent,
   composerContextImportsAtom,
@@ -96,7 +92,6 @@ import {
   scheduleUnusedComposerAttachmentCleanup,
   setComposerDraftText,
   updateComposerDraftSettings,
-  useComposerDraft,
   useComposerDraftSettings,
 } from "./use-composer-drafts";
 import {
@@ -140,35 +135,6 @@ const EMPTY_QUEUE_WORKFLOW_ATOM = Atom.make<null>(null).pipe(
 const EMPTY_CHECKPOINT_SUMMARIES_ATOM = Atom.make<ReadonlyArray<ThreadCheckpointSummary>>([]);
 const EMPTY_THREAD_SEQUENCE_ATOM = Atom.make(0);
 
-export function appendReviewCommentToDraft(input: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly text: string;
-  readonly attachments?: ReadonlyArray<DraftComposerImageAttachment>;
-}): void {
-  const threadKey = scopedThreadKey(input.environmentId, input.threadId);
-  const upgraded = upgradeLegacyContextMessage(input.text);
-  if (
-    !insertComposerDraftContext(
-      threadKey,
-      reidentifyComposerContext(upgraded.text, upgraded.records, uuidv4),
-    )
-  ) {
-    Dialog.alert("Too many context items", "Remove some context from the draft and try again.");
-    return;
-  }
-  if (input.attachments && input.attachments.length > 0) {
-    const rejectedCount = appendComposerDraftAttachments(threadKey, input.attachments, {
-      appendReference: true,
-    });
-    if (rejectedCount > 0) {
-      setPendingConnectionError(
-        `${rejectedCount} comment attachment${rejectedCount === 1 ? " was" : "s were"} not added. Messages can contain at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments.`,
-      );
-    }
-  }
-}
-
 /** Resolve per call so callbacks created before editing still target the current draft. */
 function activeComposerDraftKey(thread: {
   readonly environmentId: EnvironmentId;
@@ -177,23 +143,6 @@ function activeComposerDraftKey(thread: {
   const threadKey = scopedThreadKey(thread.environmentId, thread.id);
   const edit = getQueuedRunEdit(threadKey);
   return edit === null ? threadKey : queuedEditDraftKey(threadKey, edit.runId);
-}
-
-export function useThreadDraftForThread(input: {
-  readonly environmentId?: EnvironmentId;
-  readonly threadId?: ThreadId;
-}) {
-  const threadKey =
-    input.environmentId && input.threadId
-      ? scopedThreadKey(input.environmentId, input.threadId)
-      : null;
-  const draft = useComposerDraft(threadKey);
-
-  return {
-    draftMessage: draft.text,
-    draftContext: draft.context,
-    draftAttachments: draft.attachments,
-  };
 }
 
 export function useThreadComposerState() {
