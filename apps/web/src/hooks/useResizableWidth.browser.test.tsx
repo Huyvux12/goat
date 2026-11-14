@@ -54,6 +54,17 @@ function storedWidth(value: string | null): Disposable {
   };
 }
 
+/** Lifts src/test/browserNoMotion.ts for one test, so the host's width transition runs. */
+function withMotion(): Disposable {
+  const style = document.querySelector<HTMLStyleElement>("style[data-test-no-motion]");
+  if (style) style.disabled = true;
+  return {
+    [Symbol.dispose]: () => {
+      if (style) style.disabled = false;
+    },
+  };
+}
+
 function dragHandle(
   container: HTMLElement,
 ): Disposable & { drag: (from: number, to: number) => Promise<void> } {
@@ -95,5 +106,15 @@ describe("useResizableWidth", () => {
     using handle = dragHandle(screen.container);
     await handle.drag(500, 550);
     expect(localStorage.getItem(STORAGE_KEY)).toBe("250");
+  });
+
+  it("a drag that runs into the container's cap saves the width on screen", async () => {
+    using _stored = storedWidth("240");
+    using _motion = withMotion();
+    // This hook only needs browser storage and React; no navigation is involved.
+    await using screen = await render(<CappedPanel cap={300} />, { router: false });
+    using handle = dragHandle(screen.container);
+    await handle.drag(500, 400);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("300");
   });
 });

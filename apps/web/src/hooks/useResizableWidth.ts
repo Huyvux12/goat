@@ -73,6 +73,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     // switches keys before the pointer is released.
     const startStorageKey = storageKey;
     const startWidth = Math.min(clampedWidth, renderedWidth(host) ?? clampedWidth);
+    let shownWidth: number | null = null;
     return {
       width: startWidth,
       edge,
@@ -86,14 +87,17 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
           restoreWidth(host);
           return;
         }
-        setWidthState({ storageKey: startStorageKey, width: finalWidth });
+        const savedWidth = Math.min(finalWidth, shownWidth ?? finalWidth);
+        setWidthState({ storageKey: startStorageKey, width: savedWidth });
         try {
-          setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
+          setLocalStorageItem(startStorageKey, savedWidth, WidthSchema);
         } catch (error) {
           console.error("Could not persist panel width.", error);
         }
       },
       cleanup(committed) {
+        // Read while transitions are still off: a read after would see where the animation starts.
+        if (committed) shownWidth = renderedWidth(host);
         host?.style.removeProperty("transition-property");
         if (!committed) host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${startWidth}px`);
       },
