@@ -574,3 +574,27 @@ it("focus in a menu the task pane portalled out stays there when the task replac
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "In task menu" })).toHaveFocus();
 });
+
+it("the chat is beside the task by the end of the first commit's task, before any paint", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  // Queued from the first commit; it runs after React's synchronous flush of what that commit's
+  // ref callbacks set, and before the browser can paint.
+  let seen: string | null = null;
+  const probe = (element: HTMLElement | null) => {
+    if (element === null || seen !== null) return;
+    queueMicrotask(() => {
+      seen = container.querySelector("[hidden]") === null ? "beside" : "hidden";
+    });
+  };
+  await using screen = await render(
+    <>
+      {taskRoute}
+      <span ref={probe} />
+    </>,
+    { router: false, container }, // No navigation.
+  );
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  expect(seen).toBe("beside");
+});
