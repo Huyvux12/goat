@@ -24,6 +24,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import type * as ProviderAdapter from "@goat/provider-core/server/ProviderAdapter";
+import type * as ProviderContinuationRequests from "@goat/provider-core/server/ProviderContinuationRequests";
 import { OPENCODE_PROVIDER, openCode2DurableVersion } from "@goat/provider-opencode/testing";
 import { openCode2ReplayRuntime } from "./OpenCode2AdapterV2.testkit.ts";
 import { type ProviderReplayGate } from "@goat/provider-testing/replayGate";
@@ -606,3 +607,26 @@ export const openRequests = (
   out("session.form.list", { sessionID: SESSION }),
   replyData("session.form.list", forms),
 ];
+
+export const continuationTurn = (
+  thread: OrchestrationV2ProviderThread,
+  offer: ProviderContinuationRequests.ProviderContinuationRequest,
+  suffix = "wake",
+) => {
+  // Continuation offers always carry the message their turn starts with.
+  if (offer.messageId === undefined) throw new Error("continuation offer has no message");
+  return {
+    ...withLineage(thread),
+    runId: RunId.make(`run:opencode2-adapter:${suffix}`),
+    runOrdinal: 2,
+    providerTurnOrdinal: 2,
+    attemptId: RunAttemptId.make(`attempt:opencode2-adapter:${suffix}`),
+    message: {
+      ...turnInput(thread).message,
+      messageId: offer.messageId,
+      text: offer.detail ?? "",
+      createdBy: "agent" as const,
+      creationSource: "provider" as const,
+    },
+  };
+};
