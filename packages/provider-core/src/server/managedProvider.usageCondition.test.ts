@@ -5,6 +5,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
 } from "@goat/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -182,5 +183,70 @@ describe("makeManagedServerProvider usage conditions", () => {
         assert.strictEqual((yield* provider.refresh).auth.label, undefined);
       }),
     ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
+
+  it.effect.each([
+    { name: "omitted", keepsReportedUsage: undefined, kept: true },
+    { name: "keeps", keepsReportedUsage: () => true, kept: true },
+    { name: "drops", keepsReportedUsage: () => false, kept: false },
+  ])(
+    "a report made during a check that reads no usage stays only if the provider keeps it ($name)",
+    ({ keepsReportedUsage, kept }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const reached = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const hold = yield* Ref.make(false);
+          const asked: Array<string> = [];
+          const provider = yield* makeManagedServerProvider<TestSettings>({
+            resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+            getSettings: Effect.succeed({ enabled: true }),
+            streamSettings: Stream.empty,
+            haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+            initialSnapshot: () => Effect.succeed(initialSnapshot),
+            checkProvider: Effect.flatMap(Ref.get(hold), (held) =>
+              held
+                ? Deferred.succeed(reached, undefined).pipe(
+                    Effect.andThen(Deferred.await(release)),
+                    Effect.as({ ...refreshedSnapshot, checkedAt: "2026-04-10T00:00:05.000Z" }),
+                  )
+                : Effect.succeed(refreshedSnapshot),
+            ),
+            refreshOnInterval: false,
+            ...(keepsReportedUsage === undefined
+              ? {}
+              : {
+                  keepsReportedUsage: (published: ServerProvider, probed: ServerProvider) => {
+                    asked.push(`${published.checkedAt} ${probed.checkedAt}`);
+                    return keepsReportedUsage();
+                  },
+                }),
+          });
+          yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+          yield* Ref.set(hold, true);
+          const checking = yield* provider.refresh.pipe(Effect.forkChild);
+          yield* Deferred.await(reached);
+          const session = {
+            id: "five_hour",
+            kind: "session",
+            label: "Session",
+            usedPercent: 40,
+          } as const;
+          yield* provider.applyUsageLimits({
+            checkedAt: "2026-04-10T00:00:04.000Z",
+            windows: [session],
+          });
+          yield* Deferred.succeed(release, undefined);
+          const committed = yield* Fiber.join(checking);
+          assert.deepStrictEqual(committed.usageLimits?.windows, kept ? [session] : undefined);
+          // Asked once, inside the commit, with the snapshot shown and the check's result.
+          assert.deepStrictEqual(
+            asked,
+            keepsReportedUsage === undefined
+              ? []
+              : ["2026-04-10T00:00:01.000Z 2026-04-10T00:00:05.000Z"],
+          );
+        }),
+      ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 });
