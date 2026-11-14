@@ -1,6 +1,6 @@
 # GOAT
 
-GOAT runs the coding agents people already use, such as Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Pi and ACP agents, on the machines they own, puts cloud agents that run in their vendor's environment beside them, and lets people steer all of it from the desktop app, a browser, or a phone. Every machine runs a GOAT server: a Node WebSocket server that wraps the provider CLIs and serves the web, desktop, and mobile clients. On top of that, GOAT adds GOAT Bot, agents that start and follow work on other machines, Fleet, memory, and the `goat` MCP tools agents use to orchestrate other threads.
+GOAT runs the coding agents people already use, such as Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Pi, Muse Code, fx and ACP agents, on the machines they own, puts cloud agents that run in their vendor's environment beside them, and lets people steer all of it from the desktop app, a browser, or a phone. Every machine runs a GOAT server: a Node WebSocket server that wraps the provider CLIs and serves the web, desktop, and mobile clients. On top of that, GOAT adds GOAT Bot, agents that start and follow work on other machines, Fleet, memory, and the `goat` MCP tools agents use to orchestrate other threads.
 
 GOAT began as a fork of [T3 Code](https://github.com/pingdotgg/t3code). It keeps that event-sourced core and brings over upstream changes by hand, so many files here are shared with upstream. [Fork delta](devlog/_chase/010_fork_delta.md) records the areas where the two differ.
 
@@ -68,7 +68,7 @@ The most common defect in this repo is a change that works on the path you teste
 
 - **Entry points.** A behavior reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
 - **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), and mobile (React Native, separate navigation). Shared logic lives in `packages/client-runtime`
-- **Providers.** Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
+- **Providers.** Codex, Claude, Cursor, Grok, OpenCode, Antigravity, Pi, Muse Code, fx, and ACP agents each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
 - **Agents.** A capability a user can trigger is usually one an agent should reach through MCP tools, and scheduled tasks run the same paths. That only works when it is a service method, not handler code.
 - **Settings.** A new server setting reaches agents by one line in `SETTINGS_ACCESS` ([settingsAccess.ts](packages/contracts/src/agentSurface/settingsAccess.ts)), never by a tool of its own: `agent` keys go through `goat_environment_settings_update`, `person` keys say why a person decides. A dedicated path is for a write that does more than store a value, and it needs a reviewed reason in the same file. Tests fail on an unclassified key or an unlisted settings writer; reusing an existing writer for a per-setting tool is still a review rejection. See [Settings](docs/internals/agent-surface.md#settings).
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
