@@ -71,15 +71,14 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
   // A held draft, open file or edited name: the real surfaces render this hold.
   const { HoldsNavigation } = await import("../lib/navigationHolds");
   const { createPortal } = await import("react-dom");
+  const { useContext } = await import("react");
+  const { GoatBotChatHidden } = await import("../components/goatBot/goatBotLayout");
   return {
-    GoatBotChatView: (props: {
-      removal?: string | null;
-      onRestore?: () => void;
-      hidden?: boolean;
-    }) => {
+    GoatBotChatView: (props: { removal?: string | null; onRestore?: () => void }) => {
       state.chatSession = props;
+      const hidden = useContext(GoatBotChatHidden);
       return (
-        <GoatBotStepsReader rows={[]} paused={props.hidden ?? false}>
+        <GoatBotStepsReader rows={[]} paused={hidden}>
           <div>
             Main chat
             <input aria-label="Message" />

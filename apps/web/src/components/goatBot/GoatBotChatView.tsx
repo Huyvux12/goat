@@ -130,8 +130,6 @@ export interface GoatBotChatViewProps {
   readonly canOpenCurrentBot?: boolean | undefined;
   /** The environment whose bot history is shown, which can differ from a new home during a move. */
   readonly environmentId?: EnvironmentId | null | undefined;
-  /** A task replaces the chat: it stays mounted for its draft, but shows no Home and holds nothing. */
-  readonly hidden?: boolean | undefined;
 }
 
 /** GOAT Bot as a messenger: bubbles and work cards, never tool calls. */
@@ -181,7 +179,6 @@ function GoatBotChatViewContent({
   onCheckAgain,
   openHome = null,
   onHomeHandled,
-  hidden = false,
 }: GoatBotChatViewProps & { readonly source: ReturnType<typeof useGoatBotSource> }) {
   const member = useGoatBotMember();
   const [panelOpen, setPanelOpen] = useState(false);
@@ -190,7 +187,7 @@ function GoatBotChatViewContent({
   const title = useGoatBotName();
   const mainName = useGoatBotMainName();
   const picture = useGoatBotPicture();
-  const { viewRef, presentation } = useGoatBotHomePresentation(hidden);
+  const { viewRef, presentation, hidden } = useGoatBotHomePresentation();
   const narrow = presentation === "sheet";
   const bot = availability.kind === "ready" ? availability.bot : null;
   const routineLanding = useGoatBotRoutineLanding(bot, panelOpen, () => setPanelOpen(true));

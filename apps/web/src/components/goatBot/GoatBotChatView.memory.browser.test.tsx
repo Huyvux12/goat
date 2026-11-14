@@ -122,6 +122,7 @@ vi.mock("~/state/query", async (original) => ({
 }));
 
 import { GoatBotChatView } from "./GoatBotChatView";
+import { GoatBotChatHidden } from "./goatBotLayout";
 import { GoatBotMemberContext } from "./goatBotMemberContext";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
 
@@ -144,19 +145,20 @@ function setup(narrow = false) {
   ) => (
     <div style={{ width: 1200 }}>
       {/* Home docks only in a chat view of 752px or more; the 980px window gate is faked above. */}
-      <GoatBotChatView
-        openHome={openHome}
-        onHomeHandled={onHomeHandled}
-        availability={{ kind: "ready", bot: { environmentId, threadId: ThreadId.make("bot") } }}
-        canOperate
-        rows={rows}
-        onSend={onSend}
-        onRetryInput={() => {}}
-        legacyAgentRoute={null}
-        attachmentSupport={{ maxUploadBytes: 1_000_000 }}
-        rowsForTask={peek ? () => [] : undefined}
-        hidden={hidden}
-      />
+      <GoatBotChatHidden value={hidden}>
+        <GoatBotChatView
+          openHome={openHome}
+          onHomeHandled={onHomeHandled}
+          availability={{ kind: "ready", bot: { environmentId, threadId: ThreadId.make("bot") } }}
+          canOperate
+          rows={rows}
+          onSend={onSend}
+          onRetryInput={() => {}}
+          legacyAgentRoute={null}
+          attachmentSupport={{ maxUploadBytes: 1_000_000 }}
+          rowsForTask={peek ? () => [] : undefined}
+        />
+      </GoatBotChatHidden>
     </div>
   );
   return { view, onSend };

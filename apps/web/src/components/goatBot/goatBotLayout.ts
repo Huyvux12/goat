@@ -1,4 +1,4 @@
-import { useRef, useState, type FocusEvent } from "react";
+import { createContext, useContext, useRef, useState, type FocusEvent } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { observeResize } from "~/lib/observeResize";
@@ -7,6 +7,17 @@ import { useStableCallback } from "~/hooks/useStableCallback";
 
 /** Below this the composer wraps its controls and its text field shrinks to a few words. */
 export const GOAT_BOT_CHAT_MIN_WIDTH = 400;
+
+/** True while a task replaces the chat: it stays mounted for its draft but shows nothing. */
+export const GoatBotChatHidden = createContext(false);
+
+/** Open state for a popup the chat owns: a task replacing the chat closes it, as unmounting did. */
+export function useGoatBotChatPopupOpen() {
+  const hidden = useContext(GoatBotChatHidden);
+  const [open, setOpen] = useState(false);
+  if (hidden && open) setOpen(false);
+  return [open && !hidden, setOpen] as const;
+}
 // GoatBotTaskPane's smallest resizable width and Home's docked width (`w-88`).
 const TASK_PANE_MIN_WIDTH = 320;
 const HOME_DOCKED_WIDTH = 352;
@@ -87,7 +98,8 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
 }
 
 /** Measures the chat view itself, which a docked Home shares with the conversation. */
-export function useGoatBotHomePresentation(hidden: boolean) {
+export function useGoatBotHomePresentation() {
+  const hidden = useContext(GoatBotChatHidden);
   const windowWide = !useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const [viewFits, setViewFits] = useState<boolean | null>(null);
   const viewRef = (view: HTMLElement | null) => {
@@ -96,5 +108,6 @@ export function useGoatBotHomePresentation(hidden: boolean) {
     measure();
     return observeResize(view, measure);
   };
-  return { viewRef, presentation: goatBotHomePresentation({ windowWide, viewFits, hidden }) };
+  const presentation = goatBotHomePresentation({ windowWide, viewFits, hidden });
+  return { viewRef, presentation, hidden };
 }
