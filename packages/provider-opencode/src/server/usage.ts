@@ -107,6 +107,10 @@ const rowCache = new Map<string, { version: string; rows: Map<number, CachedRow>
 const scanLock = Semaphore.makeUnsafe(1);
 const MAX_CACHED_DATABASES = 8;
 const MAX_CACHED_ROWS = 10_000;
+// Forks resolved per database and original messages remembered per table; past either limit a
+// copy can count again, which overstates usage instead of holding unbounded memory.
+const MAX_FORKS = 10_000;
+const MAX_FORK_ORIGINALS = 50_000;
 
 const isNotFound = (cause: PlatformError.PlatformError) => cause.reason._tag === "NotFound";
 const MESSAGE_PAGE_SIZE = 64;
@@ -212,6 +216,7 @@ export const readOpenCodeUsage = Effect.fn("readOpenCodeUsage")(function* (
       // A fork copies its parent's messages through the boundary under new ids, keeping
       // seq, creation time and data. Resolve each fork to its last copied seq so a copy
       // names its original as (session, seq). A fork whose boundary is gone keeps its usage.
+      // A copy predates its fork, so a fork created before the window holds no in-window copy.
       const forks = new Map<
         string,
         { readonly parent: string; readonly lastCopiedSeq: number; readonly created: number }
@@ -239,7 +244,10 @@ export const readOpenCodeUsage = Effect.fn("readOpenCodeUsage")(function* (
            JOIN session_message AS boundary
              ON boundary.session_id = fork.fork_session_id
             AND boundary.id = json_extract(fork.fork_boundary, '$.messageID')
-           WHERE fork.fork_session_id IS NOT NULL AND json_valid(fork.fork_boundary)`,
+           WHERE fork.fork_session_id IS NOT NULL AND json_valid(fork.fork_boundary)
+             AND fork.time_created > ?
+           ORDER BY fork.time_created DESC LIMIT ${MAX_FORKS}`,
+          [sinceMs],
         );
         for (const row of resolved) {
           if (typeof row.last_copied_seq !== "number" || typeof row.created !== "number") continue;
@@ -266,13 +274,15 @@ export const readOpenCodeUsage = Effect.fn("readOpenCodeUsage")(function* (
         }
         return `${session}:${seq}`;
       };
+      const lineage = new Set<string>();
+      for (const [id, fork] of forks) lineage.add(id).add(fork.parent);
       const originals = new Set<string>();
       for (const table of ["message", "session_message"] as const) {
         if (!tables.has(table)) continue;
         const columns = yield* columnsOf(table);
         const timestamp = columns.has("time_created") ? "time_created" : "NULL";
         const updated = columns.has("time_updated") ? "time_updated" : "NULL";
-        const lineage =
+        const seqColumn =
           table === "session_message" && forks.size > 0 && columns.has("seq") ? "seq" : "NULL";
         const version = updated === "NULL" ? `${identity}/${stamp(wal)}` : identity;
         const key = `${file.path}\0${table}`;
@@ -293,7 +303,7 @@ export const readOpenCodeUsage = Effect.fn("readOpenCodeUsage")(function* (
               readonly created: unknown;
               readonly seq: unknown;
             }>(
-              `SELECT rowid AS row_id, ${updated} AS updated, octet_length(data) AS size, ${timestamp} AS created, ${lineage} AS seq
+              `SELECT rowid AS row_id, ${updated} AS updated, octet_length(data) AS size, ${timestamp} AS created, ${seqColumn} AS seq
              FROM ${table} WHERE ${keysetPredicates} ORDER BY rowid LIMIT ${MESSAGE_PAGE_SIZE}`,
               [...(timestamp === "NULL" ? [] : [sinceMs]), after],
             )
@@ -342,19 +352,27 @@ export const readOpenCodeUsage = Effect.fn("readOpenCodeUsage")(function* (
               ]),
             );
             for (const row of misses)
-              resolved.set(row.row_id, { ...row, record: parsed.get(row.row_id) ?? null });
+              resolved.set(row.row_id, {
+                updated: row.updated,
+                size: row.size,
+                created: row.created,
+                record: parsed.get(row.row_id) ?? null,
+              });
           }
           for (const row of page) {
             const entry = resolved.get(row.row_id);
-            if (entry !== undefined) {
-              if (entry.record !== null && typeof row.seq === "number") {
-                const copyOf = original(entry.record.sessionId, row.seq, entry.record.timestampMs);
-                if (originals.has(copyOf)) continue;
-                originals.add(copyOf);
-              }
-              append(file.records, entry.record);
-              if (cached.size < MAX_CACHED_ROWS) cached.set(row.row_id, entry);
+            if (entry === undefined) continue;
+            if (cached.size < MAX_CACHED_ROWS) cached.set(row.row_id, entry);
+            if (
+              entry.record !== null &&
+              typeof row.seq === "number" &&
+              lineage.has(entry.record.sessionId)
+            ) {
+              const copyOf = original(entry.record.sessionId, row.seq, entry.record.timestampMs);
+              if (originals.has(copyOf)) continue;
+              if (originals.size < MAX_FORK_ORIGINALS) originals.add(copyOf);
             }
+            append(file.records, entry.record);
           }
           yield* Effect.yieldNow;
           if (page.length < MESSAGE_PAGE_SIZE) break;

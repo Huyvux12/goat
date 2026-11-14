@@ -425,6 +425,76 @@ describe("readOpenCodeUsage", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("does not read an unchanged OpenCode fork copy's body again", () =>
+    Effect.gen(function* () {
+      const { dir } = yield* recordedForkDatabase(openCodeForkSessions);
+      let bodyReads = 0;
+      const originalAll = NodeSqlite.StatementSync.prototype.all;
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi.spyOn(NodeSqlite.StatementSync.prototype, "all").mockImplementation(function (
+            this: NodeSqlite.StatementSync,
+            ...params
+          ) {
+            if (this.sourceSQL.includes("data ->")) bodyReads++;
+            return originalAll.apply(this, params);
+          }),
+        ),
+        (spy) => Effect.sync(() => spy.mockRestore()),
+      );
+      const first = (yield* readOpenCodeUsage(dir, 0)).files.flatMap((file) => file.records);
+      bodyReads = 0;
+      const repeated = (yield* readOpenCodeUsage(dir, 0)).files.flatMap((file) => file.records);
+      assert.deepStrictEqual(repeated, first);
+      assert.strictEqual(bodyReads, 0);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("loads no OpenCode fork created before the window", () =>
+    Effect.gen(function* () {
+      const { dir, db } = yield* recordedForkDatabase(openCodeForkSessions);
+      let forkRows = -1;
+      const originalAll = NodeSqlite.StatementSync.prototype.all;
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi.spyOn(NodeSqlite.StatementSync.prototype, "all").mockImplementation(function (
+            this: NodeSqlite.StatementSync,
+            ...params
+          ) {
+            const rows = originalAll.apply(this, params);
+            if (this.sourceSQL.includes("fork_boundary")) forkRows = rows.length;
+            return rows;
+          }),
+        ),
+        (spy) => Effect.sync(() => spy.mockRestore()),
+      );
+      // Every fork here predates the window, so no in-window row can be one of their copies.
+      const sinceMs = 1792620080000;
+      yield* db.unsafe(
+        "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, 'assistant', 8, ?, ?, ?)",
+        [
+          "msg_continuationassistant00001",
+          openCodeForkContinuationSessionId,
+          sinceMs + 10,
+          sinceMs + 10,
+          JSON.stringify({
+            time: { created: sinceMs + 10 },
+            model: { id: "claude-sonnet-4-5", providerID: "anthropic" },
+            tokens: { input: 50, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+          }),
+        ],
+      );
+      const records = (yield* readOpenCodeUsage(dir, sinceMs)).files.flatMap(
+        (file) => file.records,
+      );
+      assert.deepStrictEqual(
+        records.map((record) => record.dedupeKey),
+        ["opencode:msg_continuationassistant00001"],
+      );
+      assert.strictEqual(forkRows, 0);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("counts each OpenCode fork's own replies after its boundary", () =>
     Effect.gen(function* () {
       const [source, fork] = openCodeForkSessions;
