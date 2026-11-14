@@ -326,7 +326,7 @@ interface PendingRequest {
 // Rejection without a message stops the whole execution, meaning Cancel.
 const DECLINED = "The user declined this request.";
 
-const INTERRUPT_TIMEOUT = "10 seconds";
+const INTERRUPT_TIMEOUT = 10_000;
 const INSTRUCTIONS_KEY = "goat";
 const MEMORY_INSTRUCTIONS_KEY = "goat_memory";
 export const OPENCODE_2_STILL_STOPPING =
@@ -3880,8 +3880,14 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
               ),
             );
           if (reply._tag === "None") {
-            markUnsettled(state);
-            return yield* lock.withPermit(finishTurn(state, { status: "interrupted" }));
+            if (state.active !== turn) return;
+            // The turn stays open: its tools may still run, and the user decides whether to Force stop.
+            return yield* new ProviderAdapter.ProviderAdapterInterruptTimeoutError({
+              driver: OPENCODE_PROVIDER,
+              providerThreadId: interruptInput.providerThread.id,
+              providerTurnId: interruptInput.providerTurnId,
+              timeoutMs: INTERRUPT_TIMEOUT,
+            });
           }
           // Stop between steer executions retracts pending steers and skips any run they already started.
           if (!reply.value.interrupted && state.active === turn && turn.heldEnd !== undefined) {

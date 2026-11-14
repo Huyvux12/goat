@@ -561,7 +561,7 @@ export const stopFirstTurn = (
       .interruptTurn({ providerThread: thread, providerTurnId: yield* providerTurnId })
       .pipe(Effect.forkScoped);
     yield* TestClock.adjust("11 seconds");
-    yield* Fiber.join(interrupt);
+    yield* Fiber.join(interrupt).pipe(Effect.flip);
   });
 
 export const turnItems = (collected: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) =>
