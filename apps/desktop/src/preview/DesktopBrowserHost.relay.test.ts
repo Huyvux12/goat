@@ -1,0 +1,316 @@
+// @effect-diagnostics nodeBuiltinImport:off - Stands in for an Electron debugger.
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+import { DesktopBrowserEvent } from "@goat/contracts";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as NodeEvents from "node:events";
+
+import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+
+const decodeEvent = Schema.decodeUnknownSync(Schema.fromJsonString(DesktopBrowserEvent));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeCdpReply = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ id: Schema.Number })),
+);
+const key = { threadId: "thread-1", tabId: "tab-1" };
+/** Sends a page command whose id the fake debugger records as it receives it. */
+const command = (
+  host: DesktopBrowserHost.DesktopBrowserHost["Service"],
+  id: number,
+  method: string,
+) =>
+  host.handleCommandLine(
+    encodeJson({
+      type: "cdp",
+      ...key,
+      message: encodeJson({ id, method, params: { id }, sessionId: "goat-preview-page" }),
+    }),
+  );
+
+const makeDebuggee = (
+  options: {
+    readonly deferFocus?: boolean;
+    readonly refuse?: (method: string, sessionId: string | undefined) => boolean;
+  } = {},
+) => {
+  const emitter = new NodeEvents.EventEmitter();
+  const pending: Array<() => void> = [];
+  const focusChanges: Array<() => void> = [];
+  const sent: Array<unknown> = [];
+  /** Commands the host sends on its own (no relay id), such as ending an input hold. */
+  const own: Array<{ method: string; params: unknown }> = [];
+  const sendWaiters: Array<() => void> = [];
+  const ownWaiters = new Map<string, () => void>();
+  const focusEmulation: Array<boolean> = [];
+  const debuggee = Object.assign(emitter, {
+    sendCommand: (
+      method: string,
+      params?: { id?: number; enabled?: boolean },
+      sessionId?: string,
+    ) =>
+      new Promise((resolve, reject) => {
+        if (options.refuse?.(method, sessionId)) {
+          reject(new Error("Refused"));
+          return;
+        }
+        if (method === "Target.getTargetInfo") {
+          resolve({ targetInfo: { targetId: "GUEST" } });
+          return;
+        }
+        const expression = (params as { expression?: string } | undefined)?.expression;
+        if (
+          method === "Input.setIgnoreInputEvents" ||
+          method === "Page.stopScreencast" ||
+          (method === "Runtime.evaluate" && expression?.includes("__goatAgentInputHeld"))
+        ) {
+          own.push({ method, params });
+          resolve({});
+          ownWaiters.get(method)?.();
+          return;
+        }
+        if (method === "Emulation.setFocusEmulationEnabled") {
+          focusEmulation.push(params?.enabled === true);
+          if (options.deferFocus) focusChanges.push(() => resolve({}));
+          else resolve({});
+          return;
+        }
+        sent.push(params?.id);
+        pending.push(() => resolve({ method }));
+        sendWaiters.shift()?.();
+      }),
+  });
+  const webContents = Object.assign(new NodeEvents.EventEmitter(), {
+    getURL: () => "http://localhost/",
+    getTitle: () => "Page",
+    getUserAgent: () => "Electron",
+    reload: vi.fn(),
+    reloadIgnoringCache: vi.fn(),
+  });
+  return {
+    tab: {
+      webContents: webContents as unknown as Electron.WebContents,
+      debugger: debuggee as unknown as Electron.Debugger,
+    },
+    webContents,
+    emit: (method: string, params: unknown) => emitter.emit("message", {}, method, params, ""),
+    navigate: () => webContents.emit("did-navigate"),
+    /** Ids of the commands the debugger received, in order. */
+    sent,
+    own,
+    focusEmulation,
+    nextSend: () => new Promise<void>((resolve) => sendWaiters.push(resolve)),
+    /** Resolves when the host itself sends `method`. */
+    sentOwn: (method: string) => new Promise<void>((resolve) => ownWaiters.set(method, resolve)),
+    release: () => pending.splice(0).forEach((resolve) => resolve()),
+    releaseFirst: () => pending.shift()?.(),
+    settleFocus: () => focusChanges.splice(0).forEach((resolve) => resolve()),
+  };
+};
+
+/** Commands wait behind a focus emulation change; it settles within a macrotask. */
+// oxlint-disable-next-line goat/no-real-time-wait-in-tests -- a zero-delay macrotask boundary, not a wait for time
+const settle = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+const takeEvents = (host: DesktopBrowserHost.DesktopBrowserHost["Service"], count: number) =>
+  host.events.pipe(
+    Stream.take(count),
+    Stream.runCollect,
+    Effect.map((lines) => lines.map((line) => decodeEvent(new TextDecoder().decode(line)))),
+  );
+
+/**
+ * Ids of the replies the host sends, in order. A screenshot's reply leaves after its turn
+ * has passed on, so by then the next waiting screenshot, if any, has been sent. Subscribe
+ * before sending commands: a new subscriber releases the tab's relay.
+ */
+const watchReplies = (host: DesktopBrowserHost.DesktopBrowserHost["Service"]) =>
+  Effect.gen(function* () {
+    const replies = yield* Queue.unbounded<number>();
+    yield* host.events.pipe(
+      Stream.map((line) => decodeEvent(new TextDecoder().decode(line))),
+      Stream.runForEach((event) =>
+        event.type === "cdp" ? Queue.offer(replies, decodeCdpReply(event.message).id) : Effect.void,
+      ),
+      Effect.forkScoped,
+    );
+    yield* Effect.yieldNow;
+    return replies;
+  });
+
+describe("DesktopBrowserHost", () => {
+  it.effect.each([false, true])(
+    "reloads the exact adopted guest (ignoreCache: %s)",
+    (ignoreCache) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* DesktopBrowserHost.make;
+          const guest = makeDebuggee();
+          const other = makeDebuggee();
+          host.attach(key, guest.tab);
+          host.attach({ ...key, tabId: "other-tab" }, other.tab);
+          const reader = yield* host.events.pipe(
+            Stream.map((line) => decodeEvent(new TextDecoder().decode(line))),
+            Stream.filter((event) => event.type === "cdp"),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkScoped,
+          );
+          yield* Effect.yieldNow;
+          yield* host.handleCommandLine(
+            encodeJson({
+              type: "cdp",
+              ...key,
+              message: encodeJson({
+                id: 1,
+                method: "Page.reload",
+                params: { ignoreCache },
+                sessionId: "goat-preview-page",
+              }),
+            }),
+          );
+          const [reply] = yield* Fiber.join(reader);
+          expect(JSON.parse(reply!.message)).toMatchObject({ id: 1, result: {} });
+          expect(guest.webContents.reload).toHaveBeenCalledTimes(ignoreCache ? 0 : 1);
+          expect(guest.webContents.reloadIgnoringCache).toHaveBeenCalledTimes(ignoreCache ? 1 : 0);
+          expect(other.webContents.reload).not.toHaveBeenCalled();
+          expect(other.webContents.reloadIgnoringCache).not.toHaveBeenCalled();
+        }),
+      ),
+  );
+
+  it.effect("announces tabs already attached to a backend that starts later", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      host.attach(key, makeDebuggee().tab);
+
+      expect(yield* takeEvents(host, 1)).toEqual([{ type: "attached", ...key }]);
+      expect(yield* takeEvents(host, 1)).toEqual([{ type: "attached", ...key }]);
+    }),
+  );
+
+  it.effect("drops replies from a relay the server released", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
+
+      yield* Effect.yieldNow;
+      const command = (id: number, method: string) =>
+        host.handleCommandLine(
+          encodeJson({
+            type: "cdp",
+            ...key,
+            message: encodeJson({ id, method, sessionId: "goat-preview-page" }),
+          }),
+        );
+      yield* command(1, "Page.captureScreenshot");
+      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+      yield* command(2, "DOM.enable");
+      yield* settle;
+      debuggee.release();
+      const [, reply] = yield* Fiber.join(reader);
+
+      expect(reply).toMatchObject({ type: "cdp" });
+      expect(decodeCdpReply((reply as { message: string }).message).id).toBe(2);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("sends a page one screenshot at a time", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+      const replies = yield* watchReplies(host);
+
+      yield* command(host, 1, "Page.captureScreenshot");
+      yield* command(host, 2, "Page.captureScreenshot");
+      yield* command(host, 3, "DOM.enable");
+      yield* settle;
+      expect(debuggee.sent).toEqual([1, 3]);
+
+      debuggee.releaseFirst();
+      expect(yield* Queue.take(replies)).toBe(1);
+      expect(debuggee.sent).toEqual([1, 3, 2]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("stops waiting on a screenshot the page navigated away from", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+      const replies = yield* watchReplies(host);
+
+      yield* command(host, 1, "Page.captureScreenshot");
+      yield* command(host, 2, "Page.captureScreenshot");
+      yield* command(host, 3, "Page.captureScreenshot");
+      yield* settle;
+      debuggee.navigate();
+      expect(debuggee.sent).toEqual([1, 2]);
+
+      // The superseded screenshot answering late must not start a third beside the second.
+      debuggee.releaseFirst();
+      expect(yield* Queue.take(replies)).toBe(1);
+      expect(debuggee.sent).toEqual([1, 2]);
+
+      debuggee.releaseFirst();
+      expect(yield* Queue.take(replies)).toBe(2);
+      expect(debuggee.sent).toEqual([1, 2, 3]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("ends an input hold the released relay can no longer end", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+      expect(debuggee.own.map(({ method, params }) => [method, params])).toEqual([
+        ["Input.setIgnoreInputEvents", { ignore: false }],
+        ["Runtime.evaluate", { expression: "globalThis.__goatAgentInputHeld = 0" }],
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("stops the screencast a released relay left running", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+
+      const started = debuggee.nextSend();
+      yield* command(host, 1, "Page.startScreencast");
+      yield* Effect.promise(() => started);
+      debuggee.release();
+      const stopped = debuggee.sentOwn("Page.stopScreencast");
+      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+      yield* Effect.promise(() => stopped);
+      expect(debuggee.own.map(({ method }) => method)).toContain("Page.stopScreencast");
+    }),
+  );
+
+  it.effect("drops screenshots a released relay left waiting", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+
+      yield* command(host, 1, "Page.captureScreenshot");
+      yield* command(host, 2, "Page.captureScreenshot");
+      yield* settle;
+      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+      yield* command(host, 3, "Page.captureScreenshot");
+      expect(debuggee.sent).toEqual([1]);
+
+      const sent = debuggee.nextSend();
+      debuggee.release();
+      yield* Effect.promise(() => sent);
+      expect(debuggee.sent).toEqual([1, 3]);
+    }),
+  );
+});
