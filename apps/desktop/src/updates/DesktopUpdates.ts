@@ -1307,6 +1307,8 @@ export const make = Effect.gen(function* () {
         else pendingPersistenceFailed = true;
       }
       const disabledReason = yield* resolveDisabledReason;
+      // A blocked nightly channel still lets the user switch back to stable, so it stays updatable.
+      yield* Ref.set(desktopState.canInstallUpdates, Option.isNone(disabledReason));
       const enabled = Option.isNone(disabledReason);
       yield* setState({
         ...(yield* baseUpdateState(settings.updateChannel, disabledReason)),
