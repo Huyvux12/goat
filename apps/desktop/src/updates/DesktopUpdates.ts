@@ -67,7 +67,7 @@ import {
 } from "./updateMachine.ts";
 
 const AUTO_UPDATE_STARTUP_DELAY = "15 seconds";
-const AUTO_UPDATE_POLL_INTERVAL = "4 minutes";
+const AUTO_UPDATE_POLL_INTERVAL = "4 hours";
 // Remote installs (DesktopRemoteUpdates) must answer within the server's commit budget, so
 // they wait less than a check's full deadline; quit passes UPDATE_CHECK_SETTLE_WAIT instead.
 const PREPARED_INSTALL_CHECK_WAIT = Duration.seconds(90);
