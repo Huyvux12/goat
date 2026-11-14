@@ -86,6 +86,8 @@ import {
   START_PICK_CHANNEL,
 } from "./GuestProtocol.ts";
 import { isPreviewAnnotationPayload } from "./PickedElementPayload.ts";
+import { DEFAULT_ANNOTATION_THEME } from "./AnnotationTheme.ts";
+import { buildPreviewPictureInPictureDataUrl } from "./PictureInPicturePage.ts";
 import { captureFavicon, safeHttpOrigin, selectFaviconCandidates } from "./FaviconCapture.ts";
 import { DEFAULT_RECORDING_INPUT_OPTIONS, type RecordingInputOptions } from "./RecordingInput.ts";
 import { createPreviewPopupLifecycle, isBlankPopupUrl, popupWebOrigin } from "./PopupLifecycle.ts";
@@ -141,54 +143,6 @@ const PICTURE_IN_PICTURE_MIN_HEIGHT = 160;
 const PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON = 0.002;
 const requestRecordingCaptureExpression = (tabId: string): string =>
   `globalThis[${JSON.stringify(DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER)}]?.(${JSON.stringify(tabId)}) === true`;
-const DEFAULT_ANNOTATION_THEME: DesktopPreviewAnnotationTheme = {
-  colorScheme: "light",
-  radius: "0.625rem",
-  background: "white",
-  foreground: "oklch(0.269 0 0)",
-  popover: "white",
-  popoverForeground: "oklch(0.269 0 0)",
-  primary: "oklch(0.488 0.217 264)",
-  primaryForeground: "white",
-  muted: "rgb(0 0 0 / 4%)",
-  mutedForeground: "oklch(0.556 0 0)",
-  accent: "rgb(0 0 0 / 4%)",
-  accentForeground: "oklch(0.269 0 0)",
-  border: "rgb(0 0 0 / 8%)",
-  input: "rgb(0 0 0 / 10%)",
-  ring: "oklch(0.488 0.217 264)",
-  fontSans: "system-ui, sans-serif",
-  fontMono: "ui-monospace, monospace",
-};
-
-const buildPreviewPictureInPictureDataUrl = (): string => {
-  const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
-    >
-    <meta name="color-scheme" content="dark">
-    <style>
-      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #111; }
-      body { display: grid; place-items: center; }
-      img { width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
-    </style>
-  </head>
-  <body>
-    <img id="preview-frame" alt="Live browser preview">
-    <script>
-      const frame = document.getElementById("preview-frame");
-      window.previewPictureInPicture.onFrame((next) => {
-        frame.src = "data:image/jpeg;base64," + next.data;
-      });
-    </script>
-  </body>
-</html>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-};
 
 export const fitPictureInPictureContentSize = (
   current: ReadonlyArray<number>,
