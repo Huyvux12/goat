@@ -12,7 +12,7 @@ import {
   PullRequestListFilters,
   PullRequestListState,
   type ProviderInstanceId,
-  type PullRequestMergeMethod,
+  PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@goat/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -176,6 +176,8 @@ export class MobilePreferencesStore extends Context.Service<
   }
 >()("@goat/mobile/persistence/MobilePreferencesStore") {}
 
+const isPullRequestMergeMethod = Schema.is(PullRequestMergeMethod);
+
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     homeMode?: "thread" | "bot";
@@ -246,11 +248,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.pullRequestHideTestFiles = parsed.pullRequestHideTestFiles;
   }
 
-  if (
-    parsed.pullRequestMergeMethod === "squash" ||
-    parsed.pullRequestMergeMethod === "merge" ||
-    parsed.pullRequestMergeMethod === "rebase"
-  ) {
+  if (isPullRequestMergeMethod(parsed.pullRequestMergeMethod)) {
     preferences.pullRequestMergeMethod = parsed.pullRequestMergeMethod;
   }
 

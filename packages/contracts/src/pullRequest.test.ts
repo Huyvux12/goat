@@ -3,10 +3,12 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  PullRequestActionInput,
   PullRequestDetail,
   PullRequestLabel,
   PullRequestListResult,
   PullRequestFilterOptions,
+  PullRequestMergeCapabilities,
   resolvePullRequestAuthorFilter,
 } from "./pullRequest.ts";
 
@@ -107,7 +109,7 @@ describe("PullRequestCapabilities", () => {
       capabilities: {
         ...base,
         actions: options.actions,
-        mergeMethods: ["squash", "fast-forward", "merge"],
+        mergeMethods: ["squash", "semi-linear", "merge"],
         updateMethods: options.updateMethods,
         review: { ...base.review, verdicts: options.verdicts },
       },
@@ -187,6 +189,36 @@ describe("PullRequestDetail merge queue removal", () => {
     expect(() =>
       decodeDetail({ ...detail, mergeQueueRemoval: { ...removal, reason: 5 } }),
     ).toThrow();
+  });
+});
+
+describe("fast-forward merges", () => {
+  const decodeMergeCapabilities = Schema.decodeUnknownSync(PullRequestMergeCapabilities);
+  // Peers built from dev before fast-forward: the same contracts minus that method.
+  const { "fast-forward": _added, ...capabilityFieldsBefore } = PullRequestMergeCapabilities.fields;
+  const decodeCapabilitiesBefore = Schema.decodeUnknownSync(Schema.Struct(capabilityFieldsBefore));
+  const decodeActionBefore = Schema.decodeUnknownSync(
+    Schema.Struct({
+      ...PullRequestActionInput.fields,
+      mergeMethod: Schema.optional(Schema.Literals(["merge", "squash", "rebase"])),
+    }),
+  );
+  const merge = { projectId: "p1", repository: "acme/web", number: 1, action: "merge" };
+
+  it("reads an older server's merge capabilities as not allowing fast-forward", () => {
+    const decoded = decodeMergeCapabilities({ merge: true, squash: true, rebase: true });
+    expect(decoded["fast-forward"]).toBeUndefined();
+  });
+
+  it("an older peer drops a fast-forward capability it does not know", () => {
+    const sent = { merge: false, squash: false, rebase: false, "fast-forward": true };
+    expect(decodeMergeCapabilities(sent)["fast-forward"]).toBe(true);
+    expect(Object.hasOwn(decodeCapabilitiesBefore(sent), "fast-forward")).toBe(false);
+  });
+
+  it("an older server refuses a fast-forward merge request instead of merging another way", () => {
+    expect(() => decodeActionBefore({ ...merge, mergeMethod: "fast-forward" })).toThrow();
+    expect(decodeActionBefore({ ...merge, mergeMethod: "rebase" }).mergeMethod).toBe("rebase");
   });
 });
 
