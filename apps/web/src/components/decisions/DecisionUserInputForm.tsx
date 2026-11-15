@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { scopeProjectRef } from "@goat/client-runtime/environment";
 import type { DecisionItem } from "@goat/client-runtime/state/decision-inbox";
 import { seedUserInputDraftAnswers } from "@goat/client-runtime/state/thread-requests";
 import {
@@ -7,6 +8,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "@goat/client-runtime/state/user-input-draft";
+import { useProject, useThreadShell } from "../../state/entities";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { PendingUserInputQuestionBody } from "../chat/PendingUserInputQuestionBody";
@@ -27,6 +29,10 @@ export function DecisionUserInputForm({
   onSubmit: (answers: Record<string, string | string[]>) => Promise<unknown>;
 }) {
   const fieldId = useId();
+  const thread = useThreadShell(item.ref);
+  const project = useProject(
+    thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
+  );
   const seeded: QuestionDrafts = seedUserInputDraftAnswers(item.request.questions, drafts);
   const answers = buildPendingUserInputAnswers(item.request.questions, seeded);
   if (item.request.questions.length === 0) {
@@ -48,7 +54,7 @@ export function DecisionUserInputForm({
               <h3 className="text-sm font-medium">{question.header}</h3>
               <PendingUserInputQuestionBody
                 question={question}
-                cwd={undefined}
+                cwd={thread?.worktreePath ?? project?.workspaceRoot ?? undefined}
                 threadRef={item.ref}
                 selectedOptionValues={draft?.selectedOptionValues ?? []}
                 customAnswerActive={
