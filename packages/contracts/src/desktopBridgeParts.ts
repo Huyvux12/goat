@@ -10,6 +10,7 @@ export interface DesktopHeadlessServerBridge {
 }
 
 export interface DesktopPrimaryPasteBridge {
+  /** False when the OS turned off middle-click PRIMARY paste (`gtk-enable-primary-paste`). */
   getPrimaryPasteEnabled?: () => boolean;
 }
 

@@ -98,7 +98,9 @@ if (!primaryPasteEnabled) {
   );
 }
 
-function unwrapEnsureSshEnvironmentResult(result: unknown) {
+function unwrapEnsureSshEnvironmentResult(
+  result: unknown,
+): Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>> {
   if (
     typeof result === "object" &&
     result !== null &&
