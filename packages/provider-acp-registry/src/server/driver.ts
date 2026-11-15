@@ -57,6 +57,7 @@ import {
 } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import { probeFingerprint } from "./probeFingerprint.ts";
+import { makeAcpRegistryLearnedModels } from "./learnedModels.ts";
 import {
   acpRegistryEnvironmentKey,
   acpRegistrySessionEnvironment,
@@ -527,48 +528,31 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         processEnvironment,
         currentEnvironment,
       });
-    // Refreshes rebuild the snapshot from the probe, so per-model options learned from earlier
-    // sessions are kept here: one entry, for the environment checks currently use. A session's
-    // configuration counts only for the environment it ran with.
-    const noLearnedModels = {
-      environmentKey: "",
-      models: [] as ReadonlyArray<ServerProviderModel>,
-    };
-    const learnedModels = yield* Ref.make(noLearnedModels);
+    const learnedModels = yield* makeAcpRegistryLearnedModels((provider, configuration, previous) =>
+      applyAcpRegistryLiveConfiguration(
+        provider,
+        configuration,
+        effectiveConfig.customModels,
+        previous,
+      ),
+    );
     const applyLiveConfiguration = (
       provider: ServerProvider,
-      configuration: AcpRegistryLiveConfiguration,
+      reported: AcpRegistryLiveConfiguration | undefined,
       environment: NodeJS.ProcessEnv,
-    ) => {
-      const environmentKey = acpRegistryEnvironmentKey(
-        acpRegistrySessionEnvironment(effectiveConfig, environment),
+      checked: boolean,
+    ) =>
+      learnedModels.apply(
+        provider,
+        reported,
+        acpRegistryEnvironmentKey(acpRegistrySessionEnvironment(effectiveConfig, environment)),
+        checked,
       );
-      if (
-        configuration.environmentKey !== undefined &&
-        configuration.environmentKey !== environmentKey
-      ) {
-        return Effect.succeed(provider);
-      }
-      return Ref.modify(learnedModels, (learned) => {
-        const models = learned.environmentKey === environmentKey ? learned.models : [];
-        const next = applyAcpRegistryLiveConfiguration(
-          provider,
-          configuration,
-          effectiveConfig.customModels,
-          models.length > 0 ? models : provider.models,
-        );
-        return [
-          next,
-          { environmentKey, models: next.models === provider.models ? models : next.models },
-        ];
-      });
-    };
-    const clearLearnedModels = Ref.set(learnedModels, noLearnedModels);
+    const clearLearnedModels = learnedModels.clear;
     const withLiveRuntimeState = Effect.fn("AcpRegistryDriver.withLiveRuntimeState")(function* (
       input: ServerProvider,
-      environment?: NodeJS.ProcessEnv,
+      environment: NodeJS.ProcessEnv,
     ) {
-      const liveEnvironment = environment ?? (yield* currentEnvironment);
       if (input.auth.status === "unauthenticated")
         yield* confirmedAuthentication.set(false, environment);
       const provider =
@@ -587,11 +571,12 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           }).pipe(
             Effect.flatMap(({ commands, configuration, authAction }) => {
               const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
-              return Option.match(configuration, {
-                onNone: () => Effect.succeed(withCommands),
-                onSome: (liveConfiguration) =>
-                  applyLiveConfiguration(withCommands, liveConfiguration, liveEnvironment),
-              }).pipe(
+              return applyLiveConfiguration(
+                withCommands,
+                Option.getOrUndefined(configuration),
+                environment,
+                true,
+              ).pipe(
                 Effect.map((withConfiguration) =>
                   applyAcpRegistryUrlAuthAction(withConfiguration, authAction),
                 ),
@@ -599,12 +584,14 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             }),
           );
     });
+    // Readiness and the live state come from one captured environment.
     const checkProvider = currentEnvironment.pipe(
       Effect.flatMap((environment) =>
-        checkAcpRegistryProviderReadiness(readinessInput(environment)),
+        checkAcpRegistryProviderReadiness(readinessInput(environment)).pipe(
+          Effect.flatMap((provider) => withLiveRuntimeState(provider, environment)),
+        ),
       ),
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
-      Effect.flatMap(withLiveRuntimeState),
     );
     const enrichProvider = (environment: NodeJS.ProcessEnv) =>
       checkAcpRegistryProviderStatus(
@@ -754,7 +741,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                 Effect.flatMap((current) =>
                   currentEnvironment.pipe(
                     Effect.flatMap((environment) =>
-                      applyLiveConfiguration(current, configuration, environment),
+                      applyLiveConfiguration(current, configuration, environment, false),
                     ),
                   ),
                 ),

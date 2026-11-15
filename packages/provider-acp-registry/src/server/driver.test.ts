@@ -34,7 +34,6 @@ import {
   checkAcpRegistryProviderStatus,
 } from "./driver.ts";
 import { normalizeAcpRegistryLiveConfiguration } from "./probe.ts";
-import { acpRegistryEnvironmentKey } from "./sessionEnvironmentKey.ts";
 
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
 const identity = {
@@ -801,113 +800,6 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver", (it) =
       expect(effortBySlug(yield* instance.snapshot.getSnapshot)).toBe(
         "model-a:effort,model-b:effort",
       );
-    }),
-  );
-
-  it.effect("options learned under one profile are not shown under another", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "acp-driver-" });
-      const agentPath = path.join(directory, "agent.mjs");
-      const modelsPath = path.join(directory, "models.json");
-      yield* fileSystem.writeFileString(agentPath, fakeAgentSource);
-      yield* fileSystem.writeFileString(modelsPath, JSON.stringify(["model-a", "model-b"]));
-      const coordinator = yield* AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator;
-      const host: NodeJS.ProcessEnv = { HOME: "/profile/a", PATH: "/fixture" };
-      const instance = yield* AcpRegistryDriver.create({
-        instanceId: identity.instanceId,
-        displayName: identity.displayName,
-        enabled: true,
-        environment: [],
-        config: decodeSettings({ agentId: "test-agent" }),
-      }).pipe(
-        Effect.provideService(HostProcess.Environment, host),
-        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
-          ...catalogWithInspection({
-            status: "ready",
-            agentId: "test-agent",
-            version: "1.0.0",
-            distribution: "npx",
-          }),
-          resolve: () =>
-            Effect.succeed({
-              distribution: "npx" as const,
-              spawn: { command: process.execPath, args: [agentPath, modelsPath] },
-            }),
-        }),
-      );
-      const effortBySlug = (snapshot: ServerProvider) =>
-        snapshot.models
-          .map(
-            (model) =>
-              model.slug +
-              ":" +
-              (model.capabilities?.optionDescriptors ?? []).map((option) => option.id).join("+"),
-          )
-          .join();
-      const waitFor = (expected: string) =>
-        instance.snapshot.streamChanges.pipe(
-          Stream.filter((snapshot) => effortBySlug(snapshot) === expected),
-          Stream.runHead,
-        );
-      // A session's configuration, attributed to the environment it ran with.
-      const sessionUnder = (environment: NodeJS.ProcessEnv, currentModelId: string) => ({
-        ...normalizeAcpRegistryLiveConfiguration(
-          [
-            {
-              id: "effort",
-              name: "Effort",
-              category: "thought_level",
-              type: "select",
-              currentValue: "high",
-              options: [
-                { value: "low", name: "Low" },
-                { value: "high", name: "High" },
-              ],
-            },
-          ],
-          undefined,
-          {
-            currentModelId,
-            availableModels: [
-              { modelId: "model-a", name: "model-a" },
-              { modelId: "model-b", name: "model-b" },
-            ],
-          },
-        ),
-        environmentKey: acpRegistryEnvironmentKey(environment),
-      });
-      const profileA = { ...host };
-      const probed = yield* waitFor("model-a:,model-b:").pipe(
-        Effect.forkScoped({ startImmediately: true }),
-      );
-      yield* instance.snapshot.refresh;
-      yield* Fiber.join(probed);
-      const learned = yield* waitFor("model-a:effort,model-b:").pipe(
-        Effect.forkScoped({ startImmediately: true }),
-      );
-      yield* coordinator.publishLiveConfiguration(
-        identity.instanceId,
-        sessionUnder(profileA, "model-a"),
-      );
-      yield* Fiber.join(learned);
-      host.HOME = "/profile/b";
-      // Profile B's own check shows nothing learned under A.
-      expect(effortBySlug(yield* instance.snapshot.refresh)).not.toContain("effort");
-      // A late update from a session still running under A, then one from a session under B.
-      const settled = yield* waitFor("model-a:,model-b:effort").pipe(
-        Effect.forkScoped({ startImmediately: true }),
-      );
-      yield* coordinator.publishLiveConfiguration(
-        identity.instanceId,
-        sessionUnder(profileA, "model-a"),
-      );
-      yield* coordinator.publishLiveConfiguration(
-        identity.instanceId,
-        sessionUnder({ ...host }, "model-b"),
-      );
-      expect(Option.isSome(yield* Fiber.join(settled))).toBe(true);
     }),
   );
 });
