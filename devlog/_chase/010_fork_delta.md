@@ -221,7 +221,7 @@ G13 `goat-copy`, G14 `launch-watch`.
 **마이그레이션 id.** Effect migrator는 기록된 최대 id 이하의 마이그레이션을 이름과 상관없이
 건너뛴다 (`.repos/effect-smol/packages/effect/src/sql/Migrator.ts:258`). GOAT가 먼저 쓴 id를
 upstream이 다른 이름으로 쓰면, 이미 GOAT 마이그레이션을 기록한 DB는 upstream 스키마 변경을 영영
-받지 못한다. `apps/server/src/persistence/Migrations.ts:202`도 이 상황을 경고만 한다. 그래서
+받지 못한다. `apps/server/src/persistence/Migrations.ts`의 `runMigrations`도 이 상황을 경고만 한다. 그래서
 규칙은 이렇다.
 
 - GOAT 전용 마이그레이션은 가능하면 만들지 않는다. 필요하면 upstream에 올릴 수 있는 형태로 만든다.
