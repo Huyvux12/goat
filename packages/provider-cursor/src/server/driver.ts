@@ -82,7 +82,15 @@ export const CursorDriver: ProviderDriver<
       CursorUsageAccounts.CursorUsageAccounts.pipe(
         Effect.flatMap((accounts) =>
           accounts.scan({
-            instances,
+            instances: instances.map(({ instanceId, environment }) => ({
+              instanceId,
+              environment,
+              ownVariables: new Set(
+                (settings.providerInstances[instanceId]?.environment ?? []).map(
+                  (variable) => variable.name,
+                ),
+              ),
+            })),
             keychainUsageEnabled: settings.cursorKeychainUsageEnabled,
             windowStartMs,
             retentionCutoffMs,

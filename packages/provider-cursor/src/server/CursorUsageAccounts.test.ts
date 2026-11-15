@@ -41,6 +41,7 @@ describe("CursorUsageAccounts", () => {
           instances: ["one", "two", "three", "four"].map((key) => ({
             instanceId: ProviderInstanceId.make(`cursor-${key}`),
             environment: { CURSOR_API_KEY: `${key}-key` },
+            ownVariables: new Set(["CURSOR_API_KEY"]),
           })),
           keychainUsageEnabled: false,
           windowStartMs: 0,
@@ -85,6 +86,7 @@ describe("CursorUsageAccounts", () => {
               CURSOR_API_KEY: "private-key",
               CURSOR_BACKEND_URL: "https://private.invalid",
             },
+            ownVariables: new Set(["CURSOR_API_KEY", "CURSOR_BACKEND_URL"]),
           },
           {
             instanceId: ProviderInstanceId.make("cursor-public"),
@@ -92,6 +94,7 @@ describe("CursorUsageAccounts", () => {
               CURSOR_API_KEY: "public-key",
               CURSOR_BACKEND_URL: "https://api2.cursor.sh/",
             },
+            ownVariables: new Set(["CURSOR_API_KEY", "CURSOR_BACKEND_URL"]),
           },
         ],
         keychainUsageEnabled: false,
@@ -137,7 +140,7 @@ describe("CursorUsageAccounts", () => {
       );
       const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
       yield* accounts.scan({
-        instances: [{ instanceId, environment: {} }],
+        instances: [{ instanceId, environment: {}, ownVariables: new Set() }],
         keychainUsageEnabled: false,
         windowStartMs: 0,
         retentionCutoffMs: 0,
@@ -176,6 +179,7 @@ describe("CursorUsageAccounts", () => {
               CURSOR_API_KEY: "private-key",
               CURSOR_BACKEND_URL: "https://private.invalid",
             },
+            ownVariables: new Set(["CURSOR_API_KEY", "CURSOR_BACKEND_URL"]),
           },
         ],
         keychainUsageEnabled: true,
@@ -226,7 +230,7 @@ describe("CursorUsageAccounts", () => {
         const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
         // The instance now selects Cursor's backend; its sign-in was made against another one.
         const scans = yield* accounts.scan({
-          instances: [{ instanceId, environment: {} }],
+          instances: [{ instanceId, environment: {}, ownVariables: new Set() }],
           keychainUsageEnabled: true,
           windowStartMs: 0,
           retentionCutoffMs: 0,
@@ -276,7 +280,7 @@ describe("CursorUsageAccounts", () => {
       const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
       for (const instanceId of [expired, unreadable]) {
         const scans = yield* accounts.scan({
-          instances: [{ instanceId, environment: {} }],
+          instances: [{ instanceId, environment: {}, ownVariables: new Set() }],
           keychainUsageEnabled: true,
           windowStartMs: 0,
           retentionCutoffMs: 0,
@@ -320,6 +324,7 @@ describe("CursorUsageAccounts", () => {
               instanceId: ProviderInstanceId.make("cursor-left-server-backend"),
               // Inherits the server's key, names Cursor's backend itself.
               environment: { ...server, CURSOR_BACKEND_URL: "https://api2.cursor.sh" },
+              ownVariables: new Set(["CURSOR_BACKEND_URL"]),
             },
           ],
           keychainUsageEnabled: true,
@@ -341,6 +346,59 @@ describe("CursorUsageAccounts", () => {
           ),
         ),
         Effect.provideService(HostProcess.Environment, server),
+      );
+    },
+  );
+
+  it.effect(
+    "judges an inherited key by the settings the instance was merged with, not a later host",
+    () => {
+      const read: Array<unknown> = [];
+      const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+        read: (credentialSource) =>
+          Effect.sync(() => {
+            read.push(credentialSource);
+            return { accountKey: null, records: [], missing: true, error: null };
+          }),
+      });
+      return Effect.gen(function* () {
+        const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+        yield* accounts.scan({
+          instances: [
+            {
+              instanceId: ProviderInstanceId.make("cursor-host-moved-after-merge"),
+              // Merged while the server's key was key-a on its private backend; the instance
+              // names Cursor's backend itself and sets no key.
+              environment: {
+                CURSOR_API_KEY: "server-key-a",
+                CURSOR_BACKEND_URL: "https://api2.cursor.sh",
+              },
+              ownVariables: new Set(["CURSOR_BACKEND_URL"]),
+            },
+          ],
+          keychainUsageEnabled: true,
+          windowStartMs: 0,
+          retentionCutoffMs: 0,
+          awaitRefresh: true,
+        });
+        assert.deepStrictEqual(
+          read.filter(
+            (source) => typeof source === "object" && source !== null && "apiKey" in source,
+          ),
+          [],
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.provideMerge(
+            CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+            Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+          ),
+        ),
+        // By the time the scan runs, the server holds another key.
+        Effect.provideService(HostProcess.Environment, {
+          CURSOR_API_KEY: "server-key-b",
+          CURSOR_BACKEND_URL: "https://private.invalid",
+        }),
       );
     },
   );

@@ -44,6 +44,8 @@ export class CursorUsageAccounts extends Context.Service<
       readonly instances: ReadonlyArray<{
         readonly instanceId: ProviderInstanceId;
         readonly environment: NodeJS.ProcessEnv;
+        /** The variables the instance sets itself, from the settings it was merged with. */
+        readonly ownVariables: ReadonlySet<string>;
       }>;
       readonly keychainUsageEnabled: boolean;
       readonly windowStartMs: number;
@@ -298,14 +300,14 @@ const make = Effect.gen(function* () {
       // not borrow the host's own login either.
       const credentials = yield* Effect.forEach(
         instances,
-        ({ instanceId, environment }): Effect.Effect<InstanceCredential> =>
+        ({ instanceId, environment, ownVariables }): Effect.Effect<InstanceCredential> =>
           !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
             ? Effect.succeed("excluded")
             : environment.CURSOR_API_KEY?.trim()
               ? Effect.succeed(
-                  // The server's own key belongs to the server's backend.
-                  environment.CURSOR_API_KEY.trim() === hostEnvironment.CURSOR_API_KEY?.trim() &&
-                    !exchangesAtCursor(hostEnvironment.CURSOR_BACKEND_URL)
+                  // An inherited key belongs to the server's backend, which this environment names
+                  // only when the instance does not name its own.
+                  !ownVariables.has("CURSOR_API_KEY") && ownVariables.has("CURSOR_BACKEND_URL")
                     ? "excluded"
                     : { apiKey: environment.CURSOR_API_KEY.trim() },
                 )
