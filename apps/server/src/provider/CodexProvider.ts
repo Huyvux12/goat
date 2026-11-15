@@ -74,7 +74,6 @@ import * as HostProcess from "@goat/shared/HostProcess";
 import packageJson from "../../package.json" with { type: "json" };
 const isHomeRouteUnavailable = Schema.is(HomeRoute.OpenCodexRouteUnavailable);
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
-const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
 type CodexRateLimitsProbe =
   | {
@@ -585,7 +584,6 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
             : withCodexDiscoveryDeadline(
                 client.request("account/rateLimits/read", null),
                 deadlineMs,
-                RATE_LIMITS_PROBE_TIMEOUT_MS,
               ).pipe(
                 Effect.map((response): CodexRateLimitsProbe =>
                   response
