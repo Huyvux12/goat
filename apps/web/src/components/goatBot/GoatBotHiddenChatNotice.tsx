@@ -2,11 +2,12 @@ import { useId, type ReactNode } from "react";
 
 import { usePausedNavigationHolds } from "~/lib/navigationHolds";
 
-const UNSAVED_BEHIND = "The chat behind this task has unsaved work. Leaving this task discards it.";
+const UNSAVED_BEHIND =
+  "The chat behind this task has open or unsaved work. Leaving this task closes it.";
 
 /**
- * While a task replaces the chat, says beside the control that leaves when the chat holds unsaved
- * work, and describes that control with it. The live region stays mounted so the change is read.
+ * While a task replaces the chat, says beside the control that leaves when the chat holds open or
+ * unsaved work, and describes that control with it. The live region stays mounted so the change is read.
  */
 export function useGoatBotHiddenChatNotice(chatHidden: boolean): {
   readonly describedBy: string | undefined;

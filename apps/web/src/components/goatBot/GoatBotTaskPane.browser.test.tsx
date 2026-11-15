@@ -814,11 +814,11 @@ it("says in the header that a running task waits for your answer when its worker
   expect(screen.getByText("Working", { exact: true }).query()).toBeNull();
 });
 
-it("while unsaved work sits in the chat behind it, Back to Tasks says so and is described by it", async () => {
+it("while open or unsaved work sits in the chat behind it, Back to Tasks says so and is described by it", async () => {
   setup();
   state.noRows = true;
   const session = useGoatBotSession();
-  const text = "The chat behind this task has unsaved work. Leaving this task discards it.";
+  const text = "The chat behind this task has open or unsaved work. Leaving this task closes it.";
   await using screen = await render(
     <>
       {/* A draft in the chat the task replaced: its hold pauses there. */}
