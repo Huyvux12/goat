@@ -159,6 +159,32 @@ describe("workspace provider snapshots", () => {
     expect(resolveProvidersForCwd(providers, "/workspace/project-a")[0]).toBe(provider);
     expect(resolveProvidersForCwd(providers, "/workspace/project-b")).toBe(providers);
   });
+
+  it("rebuilds a project's catalog from the machine models and the project's differences", () => {
+    const model = (slug: string, name = slug) =>
+      ({
+        slug,
+        name,
+        isCustom: false,
+        capabilities: null,
+      }) satisfies ServerProvider["models"][number];
+    const withDifferences = {
+      ...provider,
+      models: [model("a"), model("b"), model("c")],
+      workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
+        ...snapshot,
+        models: [model("b", "B for this project"), model("d")],
+        removedModels: ["c"],
+      })),
+    } satisfies ServerProvider;
+
+    const [resolved] = resolveProvidersForCwd([withDifferences], "/workspace/project-a");
+    expect(resolved?.models).toEqual([model("a"), model("b", "B for this project"), model("d")]);
+    // Pickers memoize on the catalog, so an unchanged snapshot keeps its array.
+    expect(resolveProvidersForCwd([withDifferences], "/workspace/project-a")[0]?.models).toBe(
+      resolved?.models,
+    );
+  });
 });
 
 describe.each(["codex", "fx"])("built-in skills in the skill menu (%s)", (driver) => {

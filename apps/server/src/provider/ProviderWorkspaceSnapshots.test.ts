@@ -75,11 +75,46 @@ describe("ProviderRegistry", () => {
           modelsPending,
         })),
         [
-          { cwd: "/project", models: [machineModel, projectModel], modelsPending: true },
+          { cwd: "/project", models: [projectModel], modelsPending: true },
           // Its folder may define a model the machine catalog just dropped.
           { cwd: "/plain", models: undefined, modelsPending: true },
         ],
       );
+    });
+
+    it("keeps only the folder models that differ from the machine catalog", () => {
+      const model = (slug: string, name = slug) =>
+        ({
+          slug,
+          name,
+          isCustom: false,
+          capabilities: null,
+        }) satisfies ServerProvider["models"][number];
+      const provider = {
+        instanceId: ProviderInstanceId.make("opencode"),
+        driver: ProviderDriverKind.make("opencode"),
+        status: "ready",
+        enabled: true,
+        installed: true,
+        auth: { status: "authenticated" },
+        checkedAt: "2026-03-25T00:00:00.000Z",
+        version: "2.0.0",
+        models: [model("a"), model("b"), model("c")],
+        slashCommands: [],
+        skills: [],
+      } satisfies ServerProvider;
+      const snapshotOf = (workspaceModels: ServerProvider["models"]) =>
+        ProviderRegistry.upsertProviderWorkspaceSnapshot(provider, "/project", {
+          ...provider,
+          workspaceModels,
+        }).workspaceSnapshots?.[0];
+
+      const differing = snapshotOf([model("a"), model("b", "B for this project"), model("d")]);
+      assert.deepStrictEqual(differing?.models, [model("b", "B for this project"), model("d")]);
+      assert.deepStrictEqual(differing?.removedModels, ["c"]);
+      const reordered = snapshotOf([model("c"), model("b"), model("a")]);
+      assert.strictEqual(reordered?.models, undefined);
+      assert.strictEqual(reordered?.removedModels, undefined);
     });
 
     it("stores workspace skills, commands and options without changing machine metadata", () => {
@@ -320,7 +355,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ModelManifest.layerTest, ProviderLat
           yield* Ref.set(scanResult, { ...provider, slashCommandsPending: false, workspaceModels });
           yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/project" });
           const recovered = yield* workspaceOf;
-          assert.deepStrictEqual(recovered?.models, workspaceModels);
+          assert.deepStrictEqual(recovered?.models, [projectModel]);
           assert.strictEqual(recovered?.modelsPending, undefined);
 
           // A fresh refresh whose machine models change still publishes the folder read it ran.
@@ -334,7 +369,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ModelManifest.layerTest, ProviderLat
           });
           yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/project", fresh: true });
           const rescanned = yield* workspaceOf;
-          assert.deepStrictEqual(rescanned?.models, nextWorkspaceModels);
+          assert.deepStrictEqual(rescanned?.models, [projectModel]);
           assert.strictEqual(rescanned?.modelsPending, undefined);
         }).pipe(Effect.provide(runtimeServices));
       }),

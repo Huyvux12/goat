@@ -157,8 +157,10 @@ export const ServerProviderWorkspaceSnapshot = Schema.Struct({
   slashCommandsPending: Schema.optional(Schema.Boolean),
   skills: Schema.Array(ServerProviderSkill),
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
-  // Absent means the provider's machine `models`, which keeps most snapshots small.
+  // Differences from the provider's machine `models`, which a catalog can make large: entries the
+  // machine lacks or lists differently, and machine slugs this folder does not list.
   models: Schema.optional(Schema.Array(ServerProviderModel)),
+  removedModels: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   modelsPending: Schema.optional(Schema.Boolean),
 });
 export type ServerProviderWorkspaceSnapshot = typeof ServerProviderWorkspaceSnapshot.Type;

@@ -14,6 +14,7 @@ import {
   PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
   type ProviderInstanceId,
   type ServerProvider,
+  type ServerProviderWorkspaceSnapshot,
   type ServerSettings,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
@@ -239,12 +240,33 @@ export function resolveProviderSlashCommandsForCwd(
   return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
 }
 
-/** A project's own provider config can add models that only its workspace snapshot lists. */
+const workspaceCatalogs = new WeakMap<
+  ServerProviderWorkspaceSnapshot,
+  { readonly machine: ServerProvider["models"]; readonly models: ServerProvider["models"] }
+>();
+
+/** A project's own provider config can add, change or hide models; its snapshot lists only those. */
 function resolveProviderModelsForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
 ): ServerProvider["models"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.models ?? provider.models;
+  const snapshot = resolveProviderWorkspaceSnapshot(provider, cwd);
+  if (!snapshot || (snapshot.models === undefined && snapshot.removedModels === undefined)) {
+    return provider.models;
+  }
+  const cached = workspaceCatalogs.get(snapshot);
+  if (cached?.machine === provider.models) return cached.models;
+  const changed = new Map(snapshot.models?.map((model) => [model.slug, model]));
+  const removed = new Set(snapshot.removedModels);
+  const machine = new Set(provider.models.map((model) => model.slug));
+  const models = [
+    ...provider.models.flatMap((model) =>
+      removed.has(model.slug) ? [] : [changed.get(model.slug) ?? model],
+    ),
+    ...(snapshot.models ?? []).filter((model) => !machine.has(model.slug)),
+  ];
+  workspaceCatalogs.set(snapshot, { machine: provider.models, models });
+  return models;
 }
 
 /** Providers keep their identity unless the cwd has its own catalog. */

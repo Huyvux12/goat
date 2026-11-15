@@ -83,18 +83,31 @@ describe("provider workspace snapshot models", () => {
   it("decodes both ways between peers with and without a folder's own model catalog", () => {
     const {
       models: _models,
+      removedModels: _removedModels,
       modelsPending: _pending,
       ...olderFields
     } = ServerProviderWorkspaceSnapshot.fields;
     const decodeOlderSnapshot = Schema.decodeUnknownSync(Schema.Struct(olderFields));
-    const newer = { ...snapshot, slashCommands: [], models: [projectModel], modelsPending: true };
+    const newer = {
+      ...snapshot,
+      slashCommands: [],
+      models: [projectModel],
+      removedModels: ["uni/small-gpt"],
+      modelsPending: true,
+    };
     expect(decodeOlderSnapshot(newer)).not.toHaveProperty("models");
+    expect(decodeOlderSnapshot(newer)).not.toHaveProperty("removedModels");
+    const withRemoved = { ...newer, models: [{ ...projectModel, capabilities: null }] };
+    expect(
+      decodeServerProvider({ ...baseProviderSnapshot, workspaceSnapshots: [withRemoved] }),
+    ).toMatchObject({ workspaceSnapshots: [{ removedModels: ["uni/small-gpt"] }] });
 
     const fromOlderServer = decodeServerProvider({
       ...baseProviderSnapshot,
       workspaceSnapshots: [{ ...snapshot, slashCommands: [] }],
     });
     expect(fromOlderServer.workspaceSnapshots?.[0]?.models).toBeUndefined();
+    expect(fromOlderServer.workspaceSnapshots?.[0]?.removedModels).toBeUndefined();
     expect(fromOlderServer.workspaceSnapshots?.[0]?.modelsPending).toBeUndefined();
   });
 
