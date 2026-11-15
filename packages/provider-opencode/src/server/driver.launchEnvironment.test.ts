@@ -392,14 +392,11 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
       const executable = root + "/opencode";
       yield* fs.writeFileString(executable, "#!/bin/sh\n");
       yield* fs.chmod(executable, 0o755);
-      let versionProbes = 0;
+      // What the installed CLI reports; the reinstall below replaces OpenCode 2 with OpenCode 1.
+      let installed = "opencode v2.0.18\n";
       const runtime = {
         ...openCode2Runtime,
-        runOpenCodeCommand: ({ args }: { readonly args: ReadonlyArray<string> }) =>
-          Effect.sync(() => {
-            if (args.join(" ") === "--version") versionProbes += 1;
-            return { stdout: "opencode v2.0.18\n", stderr: "", code: 0 };
-          }),
+        runOpenCodeCommand: () => Effect.sync(() => ({ stdout: installed, stderr: "", code: 0 })),
       };
       const instance = yield* create({ serverUrl: "http://127.0.0.1:4096" }, noHttp).pipe(
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime),
@@ -410,16 +407,18 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
         }),
         Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })),
       );
-      yield* instance.snapshot.resolveMaintenance();
-      const probed = versionProbes;
-      yield* instance.snapshot.resolveMaintenance();
-      assert.strictEqual(versionProbes, probed);
-      // Another install replaces the executable in place.
+      const first = yield* instance.snapshot.resolveMaintenance();
+      assert.strictEqual(first.packageName, "@opencode/cli");
+      // Another install replaces the executable in place; any lookup after it must see it, so a
+      // lookup the instance makes on its own in the meantime cannot make this pass or fail.
       yield* fs.remove(executable);
       yield* fs.writeFileString(executable, "#!/bin/sh\n# reinstalled\n");
       yield* fs.chmod(executable, 0o755);
-      yield* instance.snapshot.resolveMaintenance();
-      assert.strictEqual(versionProbes, probed + 1);
+      installed = "1.18.32\n";
+      assert.strictEqual(
+        (yield* instance.snapshot.resolveMaintenance()).packageName,
+        "opencode-ai",
+      );
     }).pipe(Effect.scoped),
   );
 });
