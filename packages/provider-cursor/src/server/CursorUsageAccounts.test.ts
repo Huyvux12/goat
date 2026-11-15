@@ -155,4 +155,43 @@ describe("CursorUsageAccounts", () => {
       ),
     );
   });
+
+  it.effect("shows no host account's history when every instance is on another backend", () => {
+    const read: Array<unknown> = [];
+    const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+      read: (credentialSource) =>
+        Effect.sync(() => {
+          read.push(credentialSource);
+          return { accountKey: null, records: [], missing: true, error: null };
+        }),
+    });
+    return Effect.gen(function* () {
+      const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+      const scans = yield* accounts.scan({
+        instances: [
+          {
+            instanceId: ProviderInstanceId.make("cursor-private-only"),
+            environment: {
+              CURSOR_API_KEY: "private-key",
+              CURSOR_BACKEND_URL: "https://private.invalid",
+            },
+          },
+        ],
+        keychainUsageEnabled: true,
+        windowStartMs: 0,
+        retentionCutoffMs: 0,
+        awaitRefresh: true,
+      });
+      assert.deepStrictEqual(read, []);
+      assert.strictEqual(scans.length, 1);
+      assert.include(scans[0]?.message ?? "", "another Cursor backend");
+    }).pipe(
+      Effect.provide(
+        Layer.provideMerge(
+          CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+          Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+        ),
+      ),
+    );
+  });
 });

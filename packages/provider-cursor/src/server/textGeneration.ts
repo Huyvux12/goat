@@ -12,17 +12,14 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import {
-  type ProviderSetupError,
-  type ServerProviderModel,
-  TextGenerationError,
-} from "@goat/contracts";
+import { type ProviderSetupError, TextGenerationError } from "@goat/contracts";
 import type { CursorSettings } from "../settings.ts";
 
 import * as TextGenerationOperations from "@goat/provider-core/server/textGenerationOperations";
 import { MemoryGenerationRunnerError } from "@goat/provider-core/server/memoryGenerationRunner";
 import { cursorSdkModelSelection } from "./sdkModel.ts";
 import type { CursorAuth } from "./auth.ts";
+import type { CatalogModels } from "./sessionEnvironment.ts";
 import * as CursorAgentSdk from "./CursorAgentSdk.ts";
 import * as CursorSdk from "./CursorSdk.ts";
 import * as HostProcess from "@goat/shared/HostProcess";
@@ -65,7 +62,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
   withAccess?: CursorAuth["withAccess"],
   memoryRunnerContext?: MemoryGenerationRunnerContext,
   currentEnvironment: Effect.Effect<NodeJS.ProcessEnv> = Effect.succeed(environment ?? process.env),
-  getModels?: (apiKey: string | undefined) => ReadonlyArray<ServerProviderModel>,
+  getModels?: CatalogModels,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const sdk = yield* CursorSdk.CursorSdk;
@@ -128,7 +125,10 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         });
       }
       const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "goat-cursor-text-" });
-      const selectedModel = cursorSdkModelSelection(modelSelection, getModels?.(apiKey) ?? []);
+      const selectedModel = cursorSdkModelSelection(
+        modelSelection,
+        getModels?.(apiKey, requestEnvironment) ?? [],
+      );
       // The SDK keeps SQLite handles open after `agent.close()` and only releases
       // them from a store the caller disposes. Its state lives outside `cwd` so the
       // agent's workspace stays empty.

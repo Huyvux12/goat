@@ -1,5 +1,9 @@
 import { sdkBackendMatches } from "./cloud/credentials.ts";
-import type { ProviderInstanceEnvironment, ProviderSetupError } from "@goat/contracts";
+import type {
+  ProviderInstanceEnvironment,
+  ProviderSetupError,
+  ServerProviderModel,
+} from "@goat/contracts";
 import { mergeProviderInstanceEnvironment } from "@goat/provider-core/server/instanceEnvironment";
 import * as HostProcess from "@goat/shared/HostProcess";
 import * as Effect from "effect/Effect";
@@ -7,6 +11,12 @@ import { CursorAgentSdkRunnerError } from "./CursorAgentSdk.ts";
 
 /** A plain environment, or one merged again from the host environment each time it runs. */
 export type Source = NodeJS.ProcessEnv | Effect.Effect<NodeJS.ProcessEnv>;
+
+/** The model catalog a key was last checked with at the backend `environment` names, if any. */
+export type CatalogModels = (
+  apiKey: string | undefined,
+  environment: NodeJS.ProcessEnv,
+) => ReadonlyArray<ServerProviderModel>;
 
 export interface SessionAuth {
   readonly resolveSessionApiKey?: (

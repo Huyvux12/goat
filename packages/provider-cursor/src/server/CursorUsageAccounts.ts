@@ -303,6 +303,21 @@ const make = Effect.gen(function* () {
               ),
       );
       const uniqueApiKeys = [...new Set(apiKeys.filter((apiKey) => apiKey !== undefined))];
+      // The host's own Cursor login stands in only for instances on Cursor's backend.
+      if (
+        uniqueApiKeys.length === 0 &&
+        instances.length > 0 &&
+        instances.every(({ environment }) => !exchangesAtCursor(environment.CURSOR_BACKEND_URL))
+      ) {
+        return [
+          {
+            dir: authPath,
+            files: null,
+            message:
+              "Cursor account history is unavailable for instances on another Cursor backend.",
+          },
+        ];
+      }
       if (uniqueApiKeys.length > 0) {
         const sources: ReadonlyArray<ProviderUsageScan | null> = yield* Effect.forEach(
           uniqueApiKeys,

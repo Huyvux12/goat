@@ -5,6 +5,17 @@ let initializedBackend: string | undefined;
 export const normalizeSdkBackend = (backend: string | undefined) =>
   (backend || PRODUCTION_BACKEND).replace(/\/+$/, "");
 
+/** Which backend a URL names, for deciding where a credential may go: case and :443 do not matter. */
+export const cursorBackendIdentity = (backend: string | undefined) => {
+  const value = backend?.trim() || PRODUCTION_BACKEND;
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return value.replace(/\/+$/, "");
+  }
+};
+
 export const currentSdkBackend = () => normalizeSdkBackend(process.env.CURSOR_BACKEND_URL);
 export const currentCloudSdkBackend = () =>
   process.env.CURSOR_BACKEND_URL ?? "https://api.cursor.com";

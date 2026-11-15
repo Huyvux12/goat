@@ -196,7 +196,8 @@ export const makeCursorSdkCatalog = Effect.fn("CursorSdkCatalog.make")(function*
             () => Effect.undefined,
             (error: CursorSdkCatalogError) => Effect.fail(error),
           ),
-          models: Cache.get(modelCache, cursorAccountIdentity(apiKey)).pipe(
+          // A catalog is built for one check and so one backend; the key alone tells accounts apart.
+          models: Cache.get(modelCache, cursorAccountIdentity(apiKey, undefined)).pipe(
             Effect.provideService(PendingApiKey, apiKey),
           ),
         },

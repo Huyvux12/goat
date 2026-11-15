@@ -359,4 +359,56 @@ describe("Cursor usage limits", () => {
       expect(limits.unavailable?.message).toContain("default Cursor backend");
     }),
   );
+
+  it.effect("does not send a private backend's access token to Cursor's usage endpoint", () =>
+    Effect.gen(function* () {
+      const limits = yield* withNodeServices(
+        readCursorUsageLimits(
+          { apiEndpoint: "" },
+          { CURSOR_AUTH_TOKEN: "private-token", CURSOR_BACKEND_URL: "https://private.invalid" },
+          true,
+        ).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.die("must not send a private backend's token to Cursor")),
+          ),
+        ),
+      );
+      expect(limits.unavailable?.reason).toBe("unsupported");
+      expect(limits.unavailable?.message).toContain("default Cursor backend");
+    }),
+  );
+
+  it.effect("treats Cursor's backend written with other letter case or :443 as Cursor's", () =>
+    Effect.gen(function* () {
+      const requested: Array<string> = [];
+      yield* withNodeServices(
+        readCursorUsageLimits(
+          { apiEndpoint: "" },
+          { CURSOR_API_KEY: "api-key", CURSOR_BACKEND_URL: "HTTPS://API2.Cursor.sh:443/" },
+          true,
+        ).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) => {
+              requested.push(request.url);
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json(
+                    request.url.endsWith("/auth/exchange_user_api_key")
+                      ? { accessToken: "api-key-access-token" }
+                      : { planUsage: { totalPercentUsed: 37 } },
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      );
+      expect(requested).toContain("https://api2.cursor.sh/auth/exchange_user_api_key");
+    }),
+  );
 });

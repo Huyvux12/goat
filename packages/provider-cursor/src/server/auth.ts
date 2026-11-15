@@ -19,7 +19,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { isCursorSdkError, loadCursorSdk } from "./sdk.ts";
-import { normalizeSdkBackend } from "./sdkBackend.ts";
+import { cursorBackendIdentity } from "./sdkBackend.ts";
 import type { ProviderAuthController } from "@goat/provider-core/server/auth";
 
 const AUTH_TIMEOUT_MS = 300_000;
@@ -132,7 +132,7 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
     const now = yield* Clock.currentTimeMillis;
     // A sign-in's key belongs to the backend it was made against.
     return credentials &&
-      normalizeSdkBackend(credentials.backendUrl) === normalizeSdkBackend(backendUrl) &&
+      cursorBackendIdentity(credentials.backendUrl) === cursorBackendIdentity(backendUrl) &&
       (credentials.apiKeyExpiresAtMs === undefined || credentials.apiKeyExpiresAtMs > now)
       ? credentials.apiKey
       : undefined;

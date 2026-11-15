@@ -26,7 +26,6 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2TurnItem,
   type ProviderInstanceId,
-  type ServerProviderModel,
   type ThreadId,
 } from "@goat/contracts";
 import { CursorSettings } from "../settings.ts";
@@ -381,8 +380,8 @@ export interface CursorAdapterV2Options extends SessionEnv.SessionAuth {
   readonly instanceId: ProviderInstanceId;
   readonly settings: CursorSettings;
   readonly environment: SessionEnv.Source;
-  /** The model catalog the account with this key was last checked with, if any. */
-  readonly getModels?: (apiKey: string | undefined) => ReadonlyArray<ServerProviderModel>;
+  /** The model catalog this key at this backend was last checked with, if any. */
+  readonly getModels?: SessionEnv.CatalogModels;
 }
 
 export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
@@ -1734,7 +1733,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           const options = makeCursorAgentOptions({
             ...(apiKey === undefined ? {} : { apiKey }),
             modelSelection: openInput.modelSelection,
-            models: adapterOptions.getModels?.(apiKey) ?? [],
+            models: adapterOptions.getModels?.(apiKey, env) ?? [],
             runtimePolicy: openInput.runtimePolicy,
             platform,
             threadId: openInput.threadId,
@@ -1948,7 +1947,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                 options: {
                   model: cursorSdkModelSelection(
                     turnInput.modelSelection,
-                    adapterOptions.getModels?.(apiKey) ?? [],
+                    adapterOptions.getModels?.(apiKey, env) ?? [],
                   ),
                   mode: turnInput.runtimePolicy.interactionMode === "plan" ? "plan" : "agent",
                   mcpServers: mcpServers ?? {},
@@ -2155,7 +2154,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           providerSession: session,
           getModelContextWindow: (selection) =>
             selection.instanceId === adapterOptions.instanceId
-              ? cursorContextWindowTokens(selection, adapterOptions.getModels?.(apiKey) ?? [])
+              ? cursorContextWindowTokens(selection, adapterOptions.getModels?.(apiKey, env) ?? [])
               : undefined,
           events: Stream.fromEffectRepeat(Queue.take(events)),
           ensureThread: Effect.fn("CursorAdapterV2.ensureThread")(

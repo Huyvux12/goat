@@ -12,6 +12,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { readCursorUsageLimits } from "./usageLimits.ts";
 import { cursorAccountIdentity } from "./accountIdentity.ts";
+import type { CatalogModels } from "./sessionEnvironment.ts";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
 import { makeCursorTextGeneration } from "./textGeneration.ts";
@@ -229,13 +230,14 @@ export const CursorDriver: ProviderDriver<
     const stampSnapshot = (draft: Parameters<typeof stampIdentity>[0]) =>
       auth.usesApiKey.pipe(Effect.map((usesApiKey) => stampWith(draft, usesApiKey)));
 
-    // The last check's catalog fills in model defaults only for the account whose key loaded it.
+    // The last check's catalog fills in model defaults only for the key and backend that loaded it.
     let catalog: {
       readonly account: string | undefined;
       readonly models: ReadonlyArray<ServerProviderModel>;
     } = { account: undefined, models: [] };
-    const catalogModelsFor = (apiKey: string | undefined) =>
-      apiKey !== undefined && catalog.account === cursorAccountIdentity(apiKey)
+    const catalogModelsFor: CatalogModels = (apiKey, environment) =>
+      apiKey !== undefined &&
+      catalog.account === cursorAccountIdentity(apiKey, environment.CURSOR_BACKEND_URL)
         ? catalog.models
         : [];
     const orchestrationAdapter = yield* makeCursorAdapterV2({
@@ -332,7 +334,10 @@ export const CursorDriver: ProviderDriver<
                   // A failed check lists only custom models, so keep the last loaded catalog.
                   if (provider.models.some((model) => !model.isCustom)) {
                     catalog = {
-                      account: apiKey === undefined ? undefined : cursorAccountIdentity(apiKey),
+                      account:
+                        apiKey === undefined
+                          ? undefined
+                          : cursorAccountIdentity(apiKey, processEnv.CURSOR_BACKEND_URL),
                       models: provider.models,
                     };
                   }

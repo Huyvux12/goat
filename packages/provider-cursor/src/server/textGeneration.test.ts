@@ -257,18 +257,39 @@ describe("CursorTextGeneration", () => {
 
   it.effect("a text generation request reads its environment once", () =>
     Effect.gen(function* () {
+      // Every way to read the environment object: enumeration, a property, `in`, a descriptor.
       let reads = 0;
-      const environment = { CURSOR_API_KEY: "key" };
+      const environment = new Proxy<NodeJS.ProcessEnv>(
+        { CURSOR_API_KEY: "key" },
+        {
+          ownKeys: (object) => {
+            reads++;
+            return Reflect.ownKeys(object);
+          },
+          get: (object, key) => {
+            reads++;
+            return Reflect.get(object, key);
+          },
+          has: (object, key) => {
+            reads++;
+            return Reflect.has(object, key);
+          },
+          getOwnPropertyDescriptor: (object, key) => {
+            reads++;
+            return Reflect.getOwnPropertyDescriptor(object, key);
+          },
+        },
+      );
+      const beforeCopy = reads;
+      void { ...environment };
+      const oneCopy = reads - beforeCopy;
       const generation = yield* makeCursorTextGeneration(
         cursorSettings,
         environment,
         undefined,
         undefined,
         undefined,
-        Effect.sync(() => {
-          reads++;
-          return environment;
-        }),
+        Effect.sync(() => environment),
       );
       const before = reads;
       yield* generation.generateCommitMessage({
@@ -278,8 +299,8 @@ describe("CursorTextGeneration", () => {
         stagedPatch: "diff",
         modelSelection: createModelSelection(ProviderInstanceId.make("cursor"), "auto"),
       });
-      // One capture gives the request its key and both backend and transport guards.
-      expect(reads - before).toBe(1);
+      // One copy gives the request its key and both backend and transport guards.
+      expect(reads - before).toBe(oneCopy);
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 

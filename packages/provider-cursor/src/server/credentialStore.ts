@@ -7,7 +7,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
-import { normalizeSdkBackend } from "./sdkBackend.ts";
+import { cursorBackendIdentity } from "./sdkBackend.ts";
 
 const Credentials = Schema.fromJsonString(
   Schema.Struct({
@@ -108,7 +108,7 @@ export const readStoredCursorApiKey = Effect.fn("readStoredCursorApiKey")(functi
   );
   if (Option.isNone(credentials)) return undefined;
   const { apiKey, apiKeyExpiresAtMs } = credentials.value;
-  if (normalizeSdkBackend(credentials.value.backendUrl) !== normalizeSdkBackend(backendUrl)) {
+  if (cursorBackendIdentity(credentials.value.backendUrl) !== cursorBackendIdentity(backendUrl)) {
     return undefined;
   }
   return apiKeyExpiresAtMs === undefined || apiKeyExpiresAtMs > (yield* Clock.currentTimeMillis)

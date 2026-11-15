@@ -86,6 +86,18 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
     let token = environment.CURSOR_AUTH_TOKEN?.trim();
     const apiKey = environment.CURSOR_API_KEY?.trim();
     const credentialStore = environment.AGENT_CLI_CREDENTIAL_STORE;
+    // Cursor's usage service serves Cursor's backend; another backend's credentials stay with it.
+    if (
+      endpoint === DEFAULT_CURSOR_API_ENDPOINT &&
+      !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
+    ) {
+      return makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "unsupported",
+        message:
+          "Cursor usage needs the default Cursor backend, or CURSOR_API_ENDPOINT for another backend.",
+      });
+    }
     // An API key can name a different account from the stored login, so read the key's own.
     if (!token && apiKey) {
       if (endpoint !== DEFAULT_CURSOR_API_ENDPOINT) {
@@ -93,13 +105,6 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
           checkedAt,
           reason: "unsupported",
           message: "Cursor usage for an API key requires the default Cursor endpoint.",
-        });
-      }
-      if (!exchangesAtCursor(environment.CURSOR_BACKEND_URL)) {
-        return makeUnavailableUsageLimits({
-          checkedAt,
-          reason: "unsupported",
-          message: "Cursor usage for an API key requires the default Cursor backend.",
         });
       }
       token = yield* exchangeCursorApiKey(apiKey);
