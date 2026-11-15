@@ -891,4 +891,43 @@ it.layer(layerTest)("CursorDriver", (it) => {
       expect(openedModels[1]).toEqual({ id: "claude-opus-5-5" });
     }).pipe(Effect.scoped),
   );
+
+  it.effect(
+    "a status check sends the instance's key only to the backend its environment names",
+    () =>
+      Effect.gen(function* () {
+        const requested: Array<string> = [];
+        const client = HttpClient.make((request) =>
+          Effect.sync(() => {
+            requested.push(request.url);
+            return request.url.endsWith("/v1/me")
+              ? HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+                )
+              : HttpClientResponse.fromWeb(request, Response.json({ items: [] }));
+          }),
+        );
+        const instance = yield* CursorDriver.create({
+          instanceId: ProviderInstanceId.make("cursor-catalog-backend"),
+          displayName: "Cursor",
+          enabled: true,
+          environment: [
+            { name: "CURSOR_API_KEY", value: "private-key", sensitive: true },
+            { name: "CURSOR_BACKEND_URL", value: "https://private.invalid", sensitive: false },
+          ],
+          config: CursorDriver.defaultConfig(),
+        }).pipe(
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provideService(HttpClient.HttpClient, client),
+        );
+        yield* instance.snapshot.refresh;
+        // Usage limits read their own endpoint (CURSOR_API_ENDPOINT); this checks the catalog's.
+        const catalogRequests = requested.filter((url) => /\/v1\/(me|models)$/.test(url));
+        expect(catalogRequests.toSorted()).toEqual([
+          "https://private.invalid/v1/me",
+          "https://private.invalid/v1/models",
+        ]);
+      }).pipe(Effect.scoped),
+  );
 });

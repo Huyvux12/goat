@@ -1,9 +1,11 @@
 import { ProviderDriverKind, ProviderSetupError, type ServerProviderModel } from "@goat/contracts";
 import { CursorSettings } from "../settings.ts";
 import * as HostProcess from "@goat/shared/HostProcess";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
@@ -335,6 +337,12 @@ export const CursorDriver: ProviderDriver<
                   }
                 }),
               ),
+              // The catalog's backend comes from the environment this check sends the key with.
+              Effect.provide(
+                CursorSdkCatalog.layer.pipe(
+                  Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(processEnv))),
+                ),
+              ),
             ),
           ),
         ),
@@ -343,7 +351,6 @@ export const CursorDriver: ProviderDriver<
       Effect.provideService(Path.Path, path),
       Effect.provideService(CursorKeychain.CursorKeychain, keychain),
       Effect.flatMap(stampSnapshot),
-      Effect.provide(CursorSdkCatalog.layer),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
 
