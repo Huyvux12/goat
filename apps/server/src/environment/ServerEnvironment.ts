@@ -332,6 +332,7 @@ export const make = Effect.gen(function* () {
       automaticServerUpdates: true,
       projectOrganization: true,
       ignoredFileListing: true,
+      ignoredFileSearch: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       ...(serverInstallation === null ? {} : { serverInstallation }),
       ...(serverSelfUpdate === "boot-service" || desktopAppUpdate
