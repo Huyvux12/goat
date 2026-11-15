@@ -9,7 +9,6 @@ import type { BotProfile } from "@goat/contracts";
 import { Atom } from "effect/reactivity";
 import {
   useId,
-  useContext,
   useLayoutEffect,
   useRef,
   useState,
@@ -27,7 +26,6 @@ import { Input } from "../ui/input";
 import type { GoatBotComposerHandle } from "./GoatBotComposer";
 import { GoatBotEditBotDialog } from "./GoatBotEditBotDialog";
 import { useGoatBotMember } from "./goatBotMemberContext";
-import { GoatBotChatHidden } from "./goatBotLayout";
 import { webBotNameRowDismissals } from "./goatBotNameRowDismissed";
 import { takeNameRowFocus } from "./goatBotNewBotOpen";
 import { HoldsNavigation } from "~/lib/navigationHolds";
@@ -60,9 +58,6 @@ export function GoatBotNameRow({
   const [more, setMore] = useState<{ readonly botId: string; readonly draftName: string } | null>(
     null,
   );
-  // A task replacing the chat closes Edit bot, as unmounting the chat did.
-  const hidden = useContext(GoatBotChatHidden);
-  if (hidden && more !== null) setMore(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const botId = member?.botId ?? null;
   // oxlint-disable-next-line goat/react-effect-budget -- The chat's first showing takes New bot's focus mark, row or not, so a row that appears later never steals focus.

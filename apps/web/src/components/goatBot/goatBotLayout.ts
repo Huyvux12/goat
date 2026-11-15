@@ -40,6 +40,11 @@ export function useGoatBotChatPopupOpen() {
 // GoatBotTaskPane's smallest resizable width and Home's docked width (`w-88`).
 const TASK_PANE_MIN_WIDTH = 320;
 const HOME_DOCKED_WIDTH = 352;
+// A modal stays on screen over the task when the chat hides (Home's sheet, Edit bot), so focus in
+// one stays; navigationHolds.tsx lists the same slots as modal.
+const MODAL_POPUP = ["sheet-popup", "dialog-popup", "alert-dialog-popup", "command-dialog-popup"]
+  .map((slot) => `[data-slot="${slot}"]`)
+  .join(", ");
 
 /** The window gate keeps every layout as it was at 980px and below; the row decides above it. */
 export function goatBotTaskBeside(layout: {
@@ -90,8 +95,31 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
     const active = row.ownerDocument.activeElement;
     const lost = active === null || active === row.ownerDocument.body;
     if (!lost && active !== chatFocus.current) return;
+    if (active?.closest(MODAL_POPUP)) return;
     row.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
   });
+  // While the task replaces the chat, a modal of the chat that closes (Home's sheet, Edit bot)
+  // returns focus to its hidden trigger, which drops it to the page; the task heading takes it.
+  // Base UI portals each popup as a child of <body>, so only that list is watched, only meanwhile.
+  const rowElement = useRef<HTMLElement | null>(null);
+  const watchModalClose = (chat: HTMLElement | null) => {
+    if (chat === null) return;
+    const doc = chat.ownerDocument;
+    const observer = new MutationObserver((records) => {
+      const closed = records.some((record) =>
+        [...record.removedNodes].some(
+          (node) =>
+            node instanceof Element &&
+            (node.matches(MODAL_POPUP) || node.querySelector(MODAL_POPUP)),
+        ),
+      );
+      const active = doc.activeElement;
+      if (closed && (active === null || active === doc.body))
+        rowElement.current?.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
+    });
+    observer.observe(doc.body, { childList: true });
+    return () => observer.disconnect();
+  };
   // The docked Home registers itself, so its mount or unmount decides again without a resize; a
   // DOM read in its ref cleanup would still find it, since React detaches refs before removal.
   const dockedHome = useRef<HTMLElement | null>(null);
@@ -107,6 +135,7 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   };
   const rowRef = (row: HTMLElement | null) => {
     if (row === null) return;
+    rowElement.current = row;
     const windowQuery = window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
     const measure = () => {
       if (!row.isConnected) return;
@@ -131,7 +160,7 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
       stopObserving();
     };
   };
-  return { beside, rowRef, onChatFocus, registerHomeDocked };
+  return { beside, rowRef, onChatFocus, watchModalClose, registerHomeDocked };
 }
 
 /**

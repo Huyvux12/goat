@@ -306,7 +306,7 @@ it("a chat New bot opened without its name row never gives the row focus when it
   await expect.element(message).toHaveFocus();
 });
 
-it("a task replacing the chat closes Edit bot, as unmounting the chat did, and it stays closed", async () => {
+it("Edit bot stays open with its typed name and focus when a task replaces the chat: a dialog on screen is the person's", async () => {
   setup();
   const bot = member("New bot");
   await using screen = await render(<Chat bot={bot} />);
@@ -314,10 +314,10 @@ it("a task replacing the chat closes Edit bot, as unmounting the chat did, and i
   await userEvent.click(page.getByRole("button", { name: "More settings for New bot" }));
   const dialog = page.getByRole("dialog", { name: "Edit bot" });
   await expect.element(dialog).toBeVisible();
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await userEvent.click(name);
   await screen.rerender(<Chat bot={bot} hidden />);
-  await expect.element(dialog).not.toBeInTheDocument();
-  await screen.rerender(<Chat bot={bot} />);
-  expect(dialog.query()).toBeNull();
-  // The typed name stays in the row, which stayed mounted.
-  await expect.element(nameField()).toHaveValue("Scout");
+  await expect.element(dialog).toBeVisible();
+  await expect.element(name).toHaveValue("Scout");
+  await expect.element(name).toHaveFocus();
 });

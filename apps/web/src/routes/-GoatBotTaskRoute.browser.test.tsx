@@ -27,6 +27,8 @@ const state = vi.hoisted(() => ({
   /** The chat shows Home docked beside its conversation. */
   homeDocked: false,
   homeListeners: new Set<() => void>(),
+  /** The slot of a modal the chat stand-in opens: a sheet, a dialog or an alert dialog. */
+  modalSlot: "dialog-popup",
 }));
 vi.mock("../hooks/useSettings", () => ({ useClientSettings: () => state.beside }));
 vi.mock("../state/entities", () => ({
@@ -74,7 +76,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
   // A held draft, open file or edited name: the real surfaces render this hold.
   const { HoldsNavigation } = await import("../lib/navigationHolds");
   const { createPortal } = await import("react-dom");
-  const { useContext, useSyncExternalStore } = await import("react");
+  const { useContext, useState, useSyncExternalStore } = await import("react");
   const { GoatBotChatHidden, GoatBotHomeDockedRegistry } =
     await import("../components/goatBot/goatBotLayout");
   return {
@@ -90,11 +92,27 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
         },
         () => state.homeDocked,
       );
+      // Home's sheet or Edit bot: a modal Base UI portals out, open until the person closes it.
+      const [modalOpen, setModalOpen] = useState(false);
       return (
         <GoatBotStepsReader rows={[]} paused={hidden}>
           <div>
-            Main chat
+            <span>Main chat</span>
             <input aria-label="Message" />
+            <button type="button" onClick={() => setModalOpen(true)}>
+              Open modal
+            </button>
+            {modalOpen
+              ? createPortal(
+                  <div role="dialog" aria-label="Chat modal" data-slot={state.modalSlot} data-open>
+                    <input aria-label="In modal" />
+                    <button type="button" onClick={() => setModalOpen(false)}>
+                      Close modal
+                    </button>
+                  </div>,
+                  document.body,
+                )
+              : null}
             {homeDocked ? (
               <aside ref={registerHomeDocked} data-goat-bot-home-docked aria-label="Home">
                 <input aria-label="New wording" />
@@ -689,4 +707,34 @@ it("performance invariant: with Home docked, sweeping the window from 1440 to 96
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   expect(commits).toBeGreaterThan(0);
   expect(commits).toBeLessThanOrEqual(2);
+});
+
+it.each(["sheet-popup", "dialog-popup", "alert-dialog-popup"])(
+  "focus in a modal the chat opened (%s) stays in it when the task replaces the chat",
+  async (slot) => {
+    state.beside = true;
+    state.modalSlot = slot;
+    await using _window = await windowWidth(1440);
+    const container = row(1000);
+    await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+    await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+    await userEvent.click(page.getByRole("textbox", { name: "In modal" }));
+    container.style.width = "700px";
+    await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "In modal" })).toHaveFocus();
+  },
+);
+
+it("closing a modal the chat opened while the task replaces the chat sends focus to the task heading", async () => {
+  state.beside = true;
+  state.modalSlot = "dialog-popup";
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+  await userEvent.click(page.getByRole("textbox", { name: "In modal" }));
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Close modal" }));
+  await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
 });
