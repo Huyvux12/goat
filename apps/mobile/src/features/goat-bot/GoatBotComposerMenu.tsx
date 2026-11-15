@@ -1,5 +1,5 @@
 import type { MenuAction } from "@react-native-menu/menu";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable } from "react-native";
 
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -28,7 +28,6 @@ export function GoatBotComposerMenu(props: {
   readonly onNewRoutine?: (() => void) | undefined;
 }) {
   const { scale } = useAndroidControlSizing();
-  const [expanded, setExpanded] = useState(false);
   const pick = props.attach ? goatBotAttachmentPick(props.attach) : null;
   const actions: MenuAction[] = [
     ...(pick ? [{ id: "photos", title: "Photo Library", image: "photo" }] : []),
@@ -60,21 +59,38 @@ export function GoatBotComposerMenu(props: {
   if (actions.length === 0) return null;
   if (!props.shown) return button;
   return (
+    <OpenableMenu
+      actions={actions}
+      onAction={(id) => {
+        if (id === "photos") void pick?.("media");
+        else if (id === "files") void pick?.("files");
+        else if (id === "routine") props.onNewRoutine?.();
+      }}
+    >
+      {button}
+    </OpenableMenu>
+  );
+}
+
+/** Mounted only while the menu can open, so a menu taken down never comes back marked open. */
+function OpenableMenu(props: {
+  readonly actions: MenuAction[];
+  readonly onAction: (id: string) => void;
+  readonly children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
     <Menu
       accessible
       accessibilityLabel="Add to message"
       accessibilityRole="button"
       accessibilityState={{ expanded }}
-      actions={actions}
+      actions={props.actions}
       onOpenMenu={() => setExpanded(true)}
       onCloseMenu={() => setExpanded(false)}
-      onPressAction={({ nativeEvent }) => {
-        if (nativeEvent.event === "photos") void pick?.("media");
-        else if (nativeEvent.event === "files") void pick?.("files");
-        else if (nativeEvent.event === "routine") props.onNewRoutine?.();
-      }}
+      onPressAction={({ nativeEvent }) => props.onAction(nativeEvent.event)}
     >
-      {button}
+      {props.children}
     </Menu>
   );
 }

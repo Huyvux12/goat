@@ -33,14 +33,18 @@ vi.mock("../../components/ui/useAndroidControlSizing", () => ({
   useAndroidControlSizing: () => ({ scale: 1 }),
 }));
 vi.mock("../../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
-// While mounted, the native menu offers its actions; a button per action stands for choosing one.
+// While mounted, the native menu offers its actions; a button per action stands for choosing one,
+// and "Open menu" for the system showing it.
 vi.mock("../../components/ui/Menu", () => ({
   Menu: (props: {
     actions: ReadonlyArray<{ id: string; title: string }>;
+    accessibilityState?: { expanded?: boolean };
+    onOpenMenu?: () => void;
     onPressAction: (event: { nativeEvent: { event: string } }) => void;
     children?: ReactNode;
   }) => (
-    <div>
+    <div aria-label="Menu" data-expanded={String(props.accessibilityState?.expanded)}>
+      <button aria-label="Open menu" onClick={props.onOpenMenu} />
       {props.children}
       {props.actions.map((action) => (
         <button
@@ -132,6 +136,7 @@ async function render(shown = true, foreground = true) {
     draw,
     press: (label: string) => act(async () => find(label)?.click()),
     has: (label: string) => find(label) !== null,
+    expanded: () => find("Menu")?.getAttribute("data-expanded"),
     files: () => find("Files")?.textContent ?? "",
     busy: () => find("Busy")?.textContent,
     unmount: async () => {
@@ -194,6 +199,20 @@ it("the + menu is taken down while the chat is not shown or the app is in the ba
     expect(view.has("Photo Library")).toBe(false);
     await view.draw({ shown: true, foreground: true });
     expect(view.has("Photo Library")).toBe(true);
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("a menu taken down while open comes back closed", async () => {
+  setup();
+  const view = await render();
+  try {
+    await view.press("Open menu");
+    expect(view.expanded()).toBe("true");
+    await view.draw({ shown: true, foreground: false });
+    await view.draw({ shown: true, foreground: true });
+    expect(view.expanded()).toBe("false");
   } finally {
     await view.unmount();
   }
