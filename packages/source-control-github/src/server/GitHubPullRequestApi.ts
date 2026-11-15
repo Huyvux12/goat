@@ -70,6 +70,7 @@ import {
 import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubGraphQlClient from "./gitHubGraphQlClient.ts";
+import { isRefusedRequestedReviewersOnly } from "./gitHubGraphQlErrors.ts";
 import { PullRequestBatchesGraphQLGroup } from "./pullRequestBatches.graphql.ts";
 import {
   PullRequestMutationsGraphQLGroup,
@@ -324,24 +325,6 @@ const isGraphQlClientError = (error: unknown): error is GraphQLClientError.Graph
   GraphQLClientError.isGraphQLClientError(error);
 
 const { isNotFoundOnly } = GitHubGraphQlClient;
-
-const isRefusedRequestedReviewersOnly = (error: unknown): boolean =>
-  isGraphQlClientError(error) &&
-  error.reason._tag === "ResponseError" &&
-  error.reason.status === 200 &&
-  error.reason.errors.every(
-    ({ path, type }) =>
-      type === "FORBIDDEN" &&
-      path?.length === 6 &&
-      path[0] === "repository" &&
-      path[1] === "pullRequest" &&
-      path[2] === "reviewRequests" &&
-      path[3] === "nodes" &&
-      typeof path[4] === "number" &&
-      Number.isInteger(path[4]) &&
-      path[4] >= 0 &&
-      path[5] === "requestedReviewer",
-  );
 
 /** A large pull request can produce a multi-megabyte patch; past this it is truncated. */
 const DIFF_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
