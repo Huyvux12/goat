@@ -76,6 +76,14 @@ import {
   subagentThreadTitle,
 } from "@goat/provider-core/server/subagentProjection";
 import * as CursorAgentSdk from "./CursorAgentSdk.ts";
+import {
+  addCursorTurnUsage,
+  type CursorProjectionTarget,
+  type ActiveCursorToolCall,
+  type ActiveCursorSubagent,
+  type ActiveCursorTextStream,
+  type ActiveCursorTurn,
+} from "./activeTurn.ts";
 import { isCursorSdkError } from "./sdk.ts";
 import { cursorRunPrompt, type CursorRunPrompt } from "./steerPrompt.ts";
 import {
@@ -275,15 +283,6 @@ const classifyCursorModelRejection =
       ? new CursorModelUnavailableError({ model: modelSelection.model, cause: error.cause })
       : error;
 
-interface CursorProjectionTarget {
-  readonly threadId: ThreadId;
-  readonly runId: ProviderAdapter.ProviderAdapterV2TurnInput["runId"] | null;
-  readonly rootNodeId: OrchestrationV2ExecutionNode["rootNodeId"];
-  readonly parentNodeId: OrchestrationV2ExecutionNode["id"];
-  readonly providerThreadId: OrchestrationV2ProviderThread["id"] | null;
-  readonly providerTurnId: OrchestrationV2ProviderTurn["id"] | null;
-}
-
 // Cursor results can omit output; retain more streamed fallback than the persisted tail.
 const MAX_CURSOR_STREAMED_OUTPUT_CHARS = 256 * 1024;
 // After a turn ends, a retryable stream error can make Cursor's SDK resume from
@@ -291,81 +290,6 @@ const MAX_CURSOR_STREAMED_OUTPUT_CHARS = 256 * 1024;
 // ends the run with this error even though the answer was already delivered.
 const CURSOR_RESUME_NO_PROGRESS_MESSAGE =
   "Agent turn stopped after repeated resume attempts made no progress";
-
-interface ActiveCursorToolCall {
-  readonly callId: string;
-  toolCall: ToolCall;
-  readonly target: CursorProjectionTarget;
-  readonly ordinal: number;
-  readonly startedAt: DateTime.Utc;
-  streamedOutput: string;
-}
-
-interface ActiveCursorSubagent {
-  task: OrchestrationV2Subagent;
-  toolCall: Extract<ToolCall, { readonly type: "task" }>;
-  readonly callId: string;
-  readonly childThreadId: ThreadId;
-  readonly childRootNodeId: OrchestrationV2ExecutionNode["id"];
-  readonly turnItemId: OrchestrationV2TurnItem["id"];
-  readonly turnItemOrdinal: number;
-  nextChildOrdinal: number;
-  resultProjected: boolean;
-}
-
-interface ActiveCursorTextSegment {
-  readonly nativeItemId: string;
-  readonly startedAt: DateTime.Utc;
-  text: string;
-}
-
-interface ActiveCursorTextStream {
-  current: ActiveCursorTextSegment | null;
-  nextSegment: number;
-}
-
-interface ActiveCursorTurn {
-  readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
-  readonly run: CursorAgentSdk.CursorAgentSdkRun;
-  readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
-  readonly startedAt: DateTime.Utc;
-  readonly completed: Deferred.Deferred<void, never>;
-  readonly itemOrdinals: Map<string, number>;
-  readonly tools: Map<string, ActiveCursorToolCall>;
-  readonly subagents: Map<string, ActiveCursorSubagent>;
-  readonly assistant: ActiveCursorTextStream;
-  assistantReply: CursorTransportFailure;
-  readonly reasoning: ActiveCursorTextStream;
-  /** The user text this run sent, before GOAT and runtime instructions; absent for /compress. */
-  readonly prompt: CursorRunPrompt | undefined;
-  interrupted: boolean;
-  finalized: boolean;
-  /** The agent's latest turn ended and no new work has started since. */
-  turnEnded: boolean;
-  readonly session: CursorAgentSdk.CursorAgentSdkSession;
-  /** What Cursor billed for this run, summed over its turn-ended updates. */
-  usage: CursorTurnUsage | undefined;
-}
-
-type CursorTurnUsage = NonNullable<Extract<InteractionUpdate, { type: "turn-ended" }>["usage"]>;
-
-const addCursorTurnUsage = (
-  total: CursorTurnUsage | undefined,
-  usage: CursorTurnUsage,
-): CursorTurnUsage => {
-  if (total === undefined) return usage;
-  const reasoningTokens =
-    total.reasoningTokens === undefined && usage.reasoningTokens === undefined
-      ? undefined
-      : (total.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0);
-  return {
-    inputTokens: total.inputTokens + usage.inputTokens,
-    outputTokens: total.outputTokens + usage.outputTokens,
-    cacheReadTokens: total.cacheReadTokens + usage.cacheReadTokens,
-    cacheWriteTokens: total.cacheWriteTokens + usage.cacheWriteTokens,
-    ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
-  };
-};
 
 interface CursorLiveAgent {
   readonly cwd: string | null;
