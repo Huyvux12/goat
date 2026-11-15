@@ -974,7 +974,7 @@ vi.mock("../threads/goatBotThreadVisibility", async () => {
   return { hiddenGoatBotThreadKeysAtom: Atom.make(new Set<string>() as ReadonlySet<string>) };
 });
 vi.mock("../../state/use-thread-outbox", () => ({ useQueuedThreadKeys: () => new Set() }));
-vi.mock("../../state/use-pending-new-tasks", () => ({ usePendingNewTasks: () => [] }));
+vi.mock("../../state/use-pending-new-tasks", () => import("../../testing/noPendingNewTasks"));
 vi.mock("../../state/server", () => ({ serverEnvironment: { answerDecision: "answerDecision" } }));
 vi.mock("../../state/presentation", () => import("../../testing/threadListEnvironments"));
 vi.mock("../threads/thread-provider-instance", () => ({
