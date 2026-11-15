@@ -3,7 +3,7 @@ import { useId, type ReactNode } from "react";
 import { usePausedNavigationHolds } from "~/lib/navigationHolds";
 
 const UNSAVED_BEHIND =
-  "The chat behind this task has open or unsaved work. Leaving this task closes it.";
+  "The chat behind this task has open or unsaved work. Leaving this task closes it and discards unsaved changes.";
 
 /**
  * While a task replaces the chat, says beside the control that leaves when the chat holds open or

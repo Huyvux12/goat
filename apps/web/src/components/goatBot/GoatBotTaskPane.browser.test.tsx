@@ -818,7 +818,8 @@ it("while open or unsaved work sits in the chat behind it, Back to Tasks says so
   setup();
   state.noRows = true;
   const session = useGoatBotSession();
-  const text = "The chat behind this task has open or unsaved work. Leaving this task closes it.";
+  const text =
+    "The chat behind this task has open or unsaved work. Leaving this task closes it and discards unsaved changes.";
   await using screen = await render(
     <>
       {/* A draft in the chat the task replaced: its hold pauses there. */}

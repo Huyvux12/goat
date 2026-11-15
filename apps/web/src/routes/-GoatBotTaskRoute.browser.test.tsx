@@ -864,7 +864,7 @@ it("with Home docked at a 20px interface size, the task sits beside only while t
 });
 
 const UNSAVED_BEHIND =
-  "The chat behind this task has open or unsaved work. Leaving this task closes it.";
+  "The chat behind this task has open or unsaved work. Leaving this task closes it and discards unsaved changes.";
 
 it("with Home docked at 1366, unsaved Home wording behind the task is named next to Back to Tasks and describes it", async () => {
   state.beside = true;
