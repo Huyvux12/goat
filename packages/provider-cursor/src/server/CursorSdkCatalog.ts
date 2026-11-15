@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { cursorAccountIdentity } from "./accountIdentity.ts";
 
 export interface CursorSdkCatalogSnapshot {
   readonly user: SDKUser | undefined;
@@ -162,14 +163,28 @@ const makeLiveProbes = Effect.gen(function* () {
   } satisfies CursorSdkCatalogProbes;
 });
 
+// The key reaches the lookup through the request, so the cache is keyed by its hash, never the key.
+const PendingApiKey = Context.Reference<string | undefined>(
+  "@goat/provider-cursor/CursorSdkCatalog/PendingApiKey",
+  { defaultValue: () => undefined },
+);
+
 export const makeCursorSdkCatalog = Effect.fn("CursorSdkCatalog.make")(function* (
   probes: CursorSdkCatalogProbes,
 ) {
-  const modelCache = yield* Cache.makeWith(probes.readModels, {
-    capacity: 32,
-    timeToLive: (exit) =>
-      Exit.isSuccess(exit) && exit.value.length > 0 ? Duration.minutes(30) : Duration.zero,
-  });
+  const modelCache = yield* Cache.makeWith(
+    (_account: string) =>
+      Effect.flatMap(PendingApiKey, (apiKey) =>
+        apiKey === undefined
+          ? Effect.die("CursorSdkCatalog: a model lookup needs its API key")
+          : probes.readModels(apiKey),
+      ),
+    {
+      capacity: 32,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && exit.value.length > 0 ? Duration.minutes(30) : Duration.zero,
+    },
+  );
   return CursorSdkCatalog.of({
     read: Effect.fn("CursorSdkCatalog.read")(function (apiKey) {
       return Effect.all(
@@ -181,7 +196,9 @@ export const makeCursorSdkCatalog = Effect.fn("CursorSdkCatalog.make")(function*
             () => Effect.undefined,
             (error: CursorSdkCatalogError) => Effect.fail(error),
           ),
-          models: Cache.get(modelCache, apiKey),
+          models: Cache.get(modelCache, cursorAccountIdentity(apiKey)).pipe(
+            Effect.provideService(PendingApiKey, apiKey),
+          ),
         },
         { concurrency: "unbounded" },
       );
