@@ -244,4 +244,55 @@ describe("CursorUsageAccounts", () => {
       );
     },
   );
+
+  it.effect("shows no host account's history for an expired or unreadable stored sign-in", () => {
+    const read: Array<unknown> = [];
+    const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+      read: (credentialSource) =>
+        Effect.sync(() => {
+          read.push(credentialSource);
+          return { accountKey: null, records: [], missing: true, error: null };
+        }),
+    });
+    return Effect.gen(function* () {
+      const host = yield* ProviderHost.ProviderHost;
+      const expired = ProviderInstanceId.make("cursor-expired-private");
+      const unreadable = ProviderInstanceId.make("cursor-unreadable");
+      yield* (yield* host.credentials("cursor", expired)).set(
+        new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            backendUrl: "https://private.invalid",
+            apiKey: "expired-private-key",
+            createdAtMs: 0,
+            apiKeyExpiresAtMs: 1,
+          }),
+        ),
+      );
+      yield* (yield* host.credentials("cursor", unreadable)).set(
+        new TextEncoder().encode("not a stored sign-in"),
+      );
+      const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+      for (const instanceId of [expired, unreadable]) {
+        const scans = yield* accounts.scan({
+          instances: [{ instanceId, environment: {} }],
+          keychainUsageEnabled: true,
+          windowStartMs: 0,
+          retentionCutoffMs: 0,
+          awaitRefresh: true,
+        });
+        // No host login was read in its place.
+        assert.deepStrictEqual(read, []);
+        assert.strictEqual(scans.length, 1);
+        assert.include(scans[0]?.message ?? "", "another Cursor backend");
+      }
+    }).pipe(
+      Effect.provide(
+        Layer.provideMerge(
+          CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+          Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+        ),
+      ),
+    );
+  });
 });

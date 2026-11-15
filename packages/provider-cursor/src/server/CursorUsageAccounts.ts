@@ -305,14 +305,17 @@ const make = Effect.gen(function* () {
               ? Effect.succeed({ apiKey: environment.CURSOR_API_KEY.trim() })
               : readStoredCursorSignIn(instanceId).pipe(
                   Effect.provideService(ProviderHost.ProviderHost, host),
-                  Effect.orElseSucceed(() => undefined),
                   Effect.map((signIn): InstanceCredential =>
                     signIn === undefined
                       ? "none"
-                      : exchangesAtCursor(signIn.backendUrl)
-                        ? { apiKey: signIn.apiKey }
-                        : "excluded",
+                      : !exchangesAtCursor(signIn.backendUrl)
+                        ? "excluded"
+                        : signIn.expired
+                          ? "none"
+                          : { apiKey: signIn.apiKey },
                   ),
+                  // A sign-in that cannot be read may belong to another backend.
+                  Effect.orElseSucceed((): InstanceCredential => "excluded"),
                 ),
       );
       const uniqueApiKeys = [
@@ -333,7 +336,7 @@ const make = Effect.gen(function* () {
             dir: authPath,
             files: null,
             message:
-              "Cursor account history is unavailable: these instances' Cursor credentials belong to another Cursor backend.",
+              "Cursor account history is unavailable: these instances' Cursor credentials belong to another Cursor backend or cannot be read.",
           },
         ];
       }

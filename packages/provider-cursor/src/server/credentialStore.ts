@@ -92,7 +92,10 @@ export const makeCursorCredentialStore = Effect.fn("makeCursorCredentialStore")(
   return { store, binding: credentials.binding };
 });
 
-/** This instance's unexpired GOAT sign-in and the backend it was made against, without the SDK. */
+/**
+ * This instance's GOAT sign-in, expired or not, and the backend it was made against, read without
+ * the SDK. Fails when a stored sign-in cannot be read; `undefined` means there is none.
+ */
 export const readStoredCursorSignIn = Effect.fn("readStoredCursorSignIn")(function* (
   instanceId: ProviderInstanceId,
 ) {
@@ -101,12 +104,10 @@ export const readStoredCursorSignIn = Effect.fn("readStoredCursorSignIn")(functi
     instanceId,
   )).get;
   if (Option.isNone(stored)) return undefined;
-  const credentials = yield* decodeCredentials(new TextDecoder().decode(stored.value)).pipe(
-    Effect.option,
+  const { apiKey, apiKeyExpiresAtMs, backendUrl } = yield* decodeCredentials(
+    new TextDecoder().decode(stored.value),
   );
-  if (Option.isNone(credentials)) return undefined;
-  const { apiKey, apiKeyExpiresAtMs, backendUrl } = credentials.value;
-  return apiKeyExpiresAtMs === undefined || apiKeyExpiresAtMs > (yield* Clock.currentTimeMillis)
-    ? { apiKey, backendUrl }
-    : undefined;
+  const expired =
+    apiKeyExpiresAtMs !== undefined && apiKeyExpiresAtMs <= (yield* Clock.currentTimeMillis);
+  return { apiKey, backendUrl, expired };
 });
