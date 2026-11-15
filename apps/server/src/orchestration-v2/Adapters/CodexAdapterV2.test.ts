@@ -271,6 +271,12 @@ describe("CodexAdapterV2 native protocol logging", () => {
         nativeEventLogger: logger,
         threadId,
         providerSessionId,
+        threadFor: (nativeThreadId) =>
+          nativeThreadId === "native-1"
+            ? threadId
+            : nativeThreadId === "native-2"
+              ? ThreadId.make("thread-2")
+              : undefined,
       });
 
       assert.notEqual(protocolLogger, undefined);
@@ -278,12 +284,49 @@ describe("CodexAdapterV2 native protocol logging", () => {
         return;
       }
 
+      const startThread = (requestId: number, nativeThreadId: string) =>
+        Effect.gen(function* () {
+          yield* protocolLogger({
+            direction: "outgoing",
+            stage: "decoded",
+            payload: { id: requestId, method: "thread/start", params: { config: {} } },
+          });
+          yield* protocolLogger({
+            direction: "incoming",
+            stage: "decoded",
+            payload: { id: requestId, result: { thread: { id: nativeThreadId } } },
+          });
+        });
+      yield* startThread(1, "native-1");
+      yield* startThread(2, "native-2");
+      yield* protocolLogger({
+        direction: "outgoing",
+        stage: "decoded",
+        payload: { id: 3, method: "turn/start", params: { threadId: "native-2" } },
+      });
+      yield* protocolLogger({
+        direction: "incoming",
+        stage: "decoded",
+        payload: { id: 3, result: { turn: { id: "turn-2" } } },
+      });
+      yield* protocolLogger({
+        direction: "incoming",
+        stage: "decoded",
+        payload: { id: 4, result: { userAgent: "codex/1.0.0" } },
+      });
+      // GOAT names no thread in thread/start; frames tied to no thread stay with the opener.
+      assert.deepEqual(
+        writes.splice(0).map((write) => String(write.threadId)),
+        ["thread-1", "thread-1", "thread-1", "thread-2", "thread-2", "thread-2", "thread-1"],
+      );
+
       yield* protocolLogger({
         direction: "incoming",
         stage: "decoded",
         payload: {
           method: "thread/event",
           params: {
+            threadId: "native-1",
             id: "evt-1",
             http_headers: { Authorization: "Bearer secret-codex-token" },
             usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
@@ -304,12 +347,14 @@ describe("CodexAdapterV2 native protocol logging", () => {
         protocol: "codex.app-server",
         kind: "protocol",
         providerSessionId,
+        nativeThreadId: "native-1",
         event: {
           direction: "incoming",
           stage: "decoded",
           payload: {
             method: "thread/event",
             params: {
+              threadId: "native-1",
               id: "evt-1",
               http_headers: { Authorization: "[REDACTED]" },
               usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
