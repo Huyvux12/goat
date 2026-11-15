@@ -154,6 +154,8 @@ export function makeSummary(
 }
 
 interface HarnessOptions {
+  readonly batchesReads?: (input: PullRequestRef) => boolean;
+  readonly batchesReadsError?: (input: PullRequestRef) => PullRequestOperationError | undefined;
   readonly invalidate?: PullRequestService.PullRequestService["Service"]["invalidate"];
   readonly snapshot: TestShellSnapshot;
   readonly summary?: (
@@ -214,6 +216,12 @@ export const makeHarness = Effect.fn("makePullRequestSyncHarness")(function* (
   const layerDependencies = Layer.mergeAll(
     Layer.mock(PullRequestService.PullRequestService)({
       withSharedProjectReads: (effect) => effect,
+      batchesReads: (input: PullRequestRef) => {
+        const error = options.batchesReadsError?.(input);
+        return error === undefined
+          ? Effect.succeed(options.batchesReads?.(input) ?? true)
+          : Effect.fail(error);
+      },
       summary,
       stack,
       invalidate: options.invalidate ?? (() => Effect.void),

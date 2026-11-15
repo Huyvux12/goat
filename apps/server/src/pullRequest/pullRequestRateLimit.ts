@@ -77,6 +77,7 @@ export function withRateLimitBackoff(
     ...(api.readsPublicHostWithoutCheckout === undefined
       ? {}
       : { readsPublicHostWithoutCheckout: api.readsPublicHostWithoutCheckout }),
+    ...(api.batchesReads === undefined ? {} : { batchesReads: api.batchesReads }),
     getViewer:
       options?.viewerAllowsPause === true
         ? interactive("getViewer", api.getViewer)

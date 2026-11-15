@@ -220,6 +220,7 @@ export class PullRequestService extends Context.Service<
       input: PullRequestRef,
       options?: { readonly recoverTransientFailure?: boolean },
     ) => Effect.Effect<PullRequestSummary, PullRequestError>;
+    readonly batchesReads: (input: PullRequestRef) => Effect.Effect<boolean, PullRequestError>;
     readonly stack: (
       input: PullRequestRef,
       options?: { readonly includeDetails?: boolean },
@@ -2783,6 +2784,13 @@ export const make = Effect.gen(function* () {
         );
   };
 
+  const batchesReads = Effect.fn("PullRequestService.batchesReads")(function* (
+    input: PullRequestRef,
+  ) {
+    const project = yield* requireProject(input);
+    return project.api.batchesReads === true;
+  });
+
   const stack: PullRequestService["Service"]["stack"] = (input, options) =>
     persistedRead(
       input,
@@ -3684,6 +3692,7 @@ export const make = Effect.gen(function* () {
       return yield* listStats({ ...input, refs: refs.flatMap(Option.toArray) });
     }),
     summary: credentialCached(summary),
+    batchesReads,
     stack: credentialCached(stack),
     subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
