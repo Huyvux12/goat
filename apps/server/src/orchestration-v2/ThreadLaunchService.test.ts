@@ -1,3 +1,4 @@
+import { preparationSettled } from "./testkit/preparationSettled.ts";
 import { otherProjectId, project, adapter, makeHarness } from "./testkit/ThreadLaunchHarness.ts";
 import { launchInput, projectId, modelSelection } from "./testkit/threadLaunchInput.ts";
 import { makeObservedSetup } from "../project/testkit/ProjectScriptRunnerHarness.ts";
@@ -517,22 +518,6 @@ function scratchHarness() {
 }
 
 const worktreeStrategy = { type: "worktree", baseRef: "main", startFromOrigin: true } as const;
-
-/** Settles once preparation releases the run, or fails it. */
-const preparationSettled = (threadId: ThreadId) =>
-  Effect.gen(function* () {
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    yield* threads.streamStoredEventsFrom({ threadId }).pipe(
-      Stream.filter(
-        (stored) =>
-          stored.event.type === "run.updated" &&
-          (stored.commandId?.endsWith(":release") === true ||
-            stored.event.payload.status === "failed"),
-      ),
-      Stream.runHead,
-    );
-    return yield* threads.getThreadProjection(threadId);
-  });
 
 function scheduledTaskInput(id: string, targetProjectId: ProjectId) {
   return {
