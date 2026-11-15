@@ -417,7 +417,10 @@ export function GoatBotScreen(props: {
   );
   const memberModelMenu = useMobileGoatBotMemberModelMenu(member, goatBotName(props.main ?? null));
   const mainModelMenu = useMobileGoatBotModelMenu();
-  const files = useGoatBotDraftAttachments(props.visible);
+  const files = useGoatBotDraftAttachments(
+    props.visible,
+    JSON.stringify([session.historyEnvironmentId, session.threadId, taskId ?? null]),
+  );
   const { attachments, intake } = files;
   // What the list last reported about its scroll, size and footer; the progress line moves only
   // while enough of it shows. Kept in a ref so scroll events re-render only when that answer flips.

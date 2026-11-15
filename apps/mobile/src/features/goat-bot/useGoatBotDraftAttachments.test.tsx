@@ -100,8 +100,12 @@ function heldPick() {
     });
 }
 
-function Composer(props: { readonly shown: boolean; readonly foreground: boolean }) {
-  const files = useGoatBotDraftAttachments(props.shown);
+function Composer(props: {
+  readonly shown: boolean;
+  readonly foreground: boolean;
+  readonly conversation?: string;
+}) {
+  const files = useGoatBotDraftAttachments(props.shown, props.conversation ?? "env/main");
   return (
     <>
       <GoatBotComposerMenu
@@ -128,7 +132,7 @@ async function render(shown = true, foreground = true) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  const draw = (next: { shown: boolean; foreground: boolean }) =>
+  const draw = (next: { shown: boolean; foreground: boolean; conversation?: string }) =>
     act(async () => root.render(<Composer {...next} />));
   await draw({ shown, foreground });
   const find = (label: string) => container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
@@ -240,6 +244,23 @@ it("two picks together never fill the message past its attachment limit; the ext
       "You can attach up to 100 files per message.",
     );
     expect(view.busy()).toBe("0");
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("a pick that answers after the chat moved to another conversation is released, and the box is free", async () => {
+  setup();
+  const answer = heldPick();
+  const view = await render();
+  try {
+    await view.press("Photo Library");
+    await view.draw({ shown: true, foreground: true, conversation: "env-2/main" });
+    expect(view.busy()).toBe("0");
+    await answer([photo("moved")]);
+    expect(view.files()).toBe("");
+    expect(native.release).toHaveBeenCalledWith([photo("moved")]);
+    expect(isComposerAttachmentFileRetained("file:///documents/moved.jpg")).toBe(false);
   } finally {
     await view.unmount();
   }

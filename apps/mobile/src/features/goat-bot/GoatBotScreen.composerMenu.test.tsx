@@ -286,4 +286,41 @@ it("New routine treats a box with only blank space as empty, and keeps a box wit
   }
 });
 
+it("a pick still open when the reused chat moves to another bot or computer is released, and the next chat's box stays free", async () => {
+  const scout = {
+    botId: "scout",
+    name: "Scout",
+    emoji: "S",
+    color: "#2F6FED",
+    avatar: null,
+    environmentId: "env",
+    sessionThreadId: "scout-thread",
+    state: "active",
+  } as unknown as BotProfile;
+  for (const next of [
+    { member: scout, environmentId: "env", threadId: "scout-thread" },
+    { member: undefined, environmentId: "env-2", threadId: "main-thread" },
+  ]) {
+    setupComposer();
+    screenSession.environmentId = "env";
+    screenSession.threadId = "main-thread";
+    const chat = await open();
+    try {
+      await chat.press("Add to message: Photo Library");
+      screenSession.environmentId = next.environmentId;
+      screenSession.threadId = next.threadId;
+      await chat.view.rerender(<GoatBotScreen visible member={next.member} />);
+      await act(async () => picker.settle?.([file]));
+      expect(picker.release).toHaveBeenCalledWith([file]);
+      await chat.press("Add to message: New routine");
+      expect(chat.typed()).toBe(ROUTINE);
+      expect(composer.alert).not.toHaveBeenCalled();
+    } finally {
+      await chat.close();
+      screenSession.environmentId = null;
+      screenSession.threadId = null;
+    }
+  }
+});
+
 vi.mock("./GoatBotHeroFace", () => ({ GoatBotHeroFace: () => null }));
