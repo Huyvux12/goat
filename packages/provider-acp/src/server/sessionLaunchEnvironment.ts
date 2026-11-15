@@ -22,3 +22,12 @@ export function launchEnvironment(environment: NodeJS.ProcessEnv = {}, cwd?: str
   }
   return resolved;
 }
+
+/** A session environment replaces the server's: the child gets that copy and inherits nothing. */
+export const acpSpawnEnvironment = (
+  sessionEnvironment: NodeJS.ProcessEnv | undefined,
+  spawn: { readonly env?: NodeJS.ProcessEnv | undefined; readonly extendEnv?: boolean | undefined },
+) => ({
+  extendEnv: sessionEnvironment === undefined && (spawn.extendEnv ?? true),
+  environment: { ...(sessionEnvironment === undefined ? process.env : {}), ...spawn.env },
+});

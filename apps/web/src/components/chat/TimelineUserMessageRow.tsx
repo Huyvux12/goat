@@ -2,7 +2,6 @@ import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { TimelineSentByLabel, type SentBySender } from "./TimelineSentByLabel";
 import { useConnectedEnvironmentIds, useEnvironment } from "../../state/environments";
 import { filePreviewKind } from "@goat/shared/filePreview";
-import { remarkEnableOrderedListNumbers } from "@goat/shared/markdownPipeline";
 import { findRevealRef } from "./markdownFindContext";
 import { type MessageId, type ServerProviderSkill, ThreadId } from "@goat/contracts";
 import { resolveUserMessagePresentation } from "@goat/client-runtime/user-message";
@@ -28,7 +27,6 @@ import {
   CalendarClockIcon,
   DownloadIcon,
   EyeIcon,
-  RedoIcon as Redo2Icon,
   type IconComponent,
   UndoIcon as Undo2Icon,
 } from "~/components/solar";
@@ -37,6 +35,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "~/components/solar";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Button, InlineButton } from "../ui/button";
 import { ModelSwitchRow } from "./V2LifecycleRow";
+import { UserMessageIntentMarker } from "./UserMessageIntentMarker";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { AttachmentImage } from "../media/AttachmentImage";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
@@ -85,6 +84,7 @@ import { UserMessageContextReferenceChip } from "./UserMessageContextChips";
 import {
   resolvePreviewAnnotationImage,
   userMessageFileLabel,
+  USER_MESSAGE_REMARK_PLUGINS,
 } from "./TimelineUserMessageRow.logic";
 
 function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
@@ -186,7 +186,10 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
     <div className="group flex flex-col items-end gap-1" data-user-message-attribution="automation">
       {row.message.inputIntent === "steer" ||
       row.message.inputIntent === "promoted_queued_to_steer" ? (
-        <UserMessageIntentMarker intent={row.message.inputIntent} />
+        <UserMessageIntentMarker
+          intent={row.message.inputIntent}
+          unread={row.projectedItem?.item.status === "pending"}
+        />
       ) : null}
       <div
         className={cn(
@@ -544,7 +547,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {!folded &&
       (row.message.inputIntent === "steer" ||
         row.message.inputIntent === "promoted_queued_to_steer") ? (
-        <UserMessageIntentMarker intent={row.message.inputIntent} />
+        <UserMessageIntentMarker
+          intent={row.message.inputIntent}
+          unread={row.projectedItem?.item.status === "pending"}
+        />
       ) : null}
       <div
         className={cn(
@@ -831,33 +837,6 @@ function UserMessageStandingInstructions({ block }: { readonly block: StandingIn
   );
 }
 
-function UserMessageIntentMarker({
-  intent,
-}: {
-  readonly intent: "steer" | "promoted_queued_to_steer";
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <div
-            className="me-1 flex items-center justify-end gap-1 text-xs leading-none text-muted-foreground"
-            data-user-message-intent={intent}
-          />
-        }
-      >
-        <Redo2Icon aria-hidden="true" className="size-3" />
-        Steer
-      </TooltipTrigger>
-      <TooltipPopup side="top">
-        {intent === "promoted_queued_to_steer"
-          ? "Originally queued, then promoted to steer the active turn"
-          : "Steered the active turn"}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function RevertUserMessageButton({
   turnCount,
   messageId,
@@ -970,8 +949,6 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
   );
 });
 
-const USER_MESSAGE_REMARK_PLUGINS = [remarkEnableOrderedListNumbers];
-
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
   renderContextReference?: (reference: ChatMarkdownContextReference) => ReactNode;
@@ -988,7 +965,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       cwd={props.markdownCwd}
       threadRef={ctx.threadRef ?? undefined}
       skills={props.skills}
-      className="text-foreground user-message-markdown"
+      className="text-message-foreground user-message-markdown"
       lineBreaks
       parseRawHtml={false}
       extraRemarkPlugins={USER_MESSAGE_REMARK_PLUGINS}

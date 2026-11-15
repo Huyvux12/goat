@@ -55,6 +55,7 @@ import { hostEnvironmentHash } from "./hostEnvironmentHash.ts";
 import {
   makeOpenCodeRuntimeProbe,
   probeOpenCodeRuntime,
+  probeOpenCodeBinary,
   type ProbedOpenCode,
 } from "./versionProbe.ts";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
@@ -91,6 +92,18 @@ const decodeMemoryContext = Schema.decodeEffect(MemoryGenerationRunnerContext);
 const decodeMemorySelection = Schema.decodeEffect(MemoryModelSelection);
 
 const DRIVER_KIND = ProviderDriverKind.make("opencode");
+
+// A loopback server runs on this environment, but can outlive its CLI installation.
+// Its reported version may therefore differ from the installed executable after an update.
+export function isLocalOpenCodeServerUrl(serverUrl: string): boolean {
+  const url = URL.parse(serverUrl.trim());
+  if (url?.protocol !== "http:" && url?.protocol !== "https:") return false;
+  return (
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]" ||
+    /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(url.hostname)
+  );
+}
 
 function isOpenCodeNativeCommandPath(commandPath: string): boolean {
   const normalized = normalizeCommandPath(commandPath);
@@ -490,7 +503,17 @@ export const OpenCodeDriver: ProviderDriver<
         Effect.provideService(Path.Path, pathService),
       );
     const cachedMaintenance = yield* makeCachedProviderMaintenanceResolution(
-      maintenanceFor(runtimeProbe.get),
+      maintenanceFor(
+        isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
+          ? probeOpenCodeBinary(
+              effectiveConfig.binaryPath,
+              providerProbeEnvironment(processEnv),
+            ).pipe(
+              Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
+              Effect.catch(() => runtimeProbe.get),
+            )
+          : runtimeProbe.get,
+      ),
       {
         // The probe identity fingerprints the executable and the merged environment; the hash of
         // the host snapshot resolveMaintenance provides joins it, because a native install's npm
@@ -506,7 +529,19 @@ export const OpenCodeDriver: ProviderDriver<
             install: `${identity}\0${hostEnvironmentHash(host)}`,
           })),
         ),
-        resolve: ({ env }) => maintenanceFor(runtimeProbe.get, Effect.succeed(env)),
+        resolve: ({ env }) =>
+          maintenanceFor(
+            isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
+              ? probeOpenCodeBinary(
+                  effectiveConfig.binaryPath,
+                  providerProbeEnvironment(processEnv),
+                ).pipe(
+                  Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
+                  Effect.catch(() => runtimeProbe.get),
+                )
+              : runtimeProbe.get,
+            Effect.succeed(env),
+          ),
       },
     );
     const resolveMaintenance = (options?: { readonly fresh?: boolean }) =>
@@ -717,6 +752,19 @@ export const OpenCodeDriver: ProviderDriver<
       Effect.flatMap((environment) =>
         Effect.all(
           {
+            // A configured loopback server reports its running version. Probe the local
+            // CLI separately so a completed npm update is not mistaken for a failure
+            // while that independently managed server still runs the previous binary.
+            installedVersion:
+              effectiveConfig.enabled && isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
+                ? probeOpenCodeBinary(
+                    effectiveConfig.binaryPath,
+                    providerProbeEnvironment(processEnv),
+                  ).pipe(
+                    Effect.map((probed) => probed.version),
+                    Effect.orElseSucceed(() => undefined),
+                  )
+                : Effect.void,
             provider: checkOpenCodeProviderStatus(
               effectiveConfig,
               host.paths.cwd,
@@ -732,7 +780,11 @@ export const OpenCodeDriver: ProviderDriver<
           { concurrency: "unbounded" },
         ).pipe(Effect.provideService(LaunchEnvironment, environment)),
       ),
-      Effect.map(({ provider, usageLimits }) => ({ ...provider, usageLimits })),
+      Effect.map(({ provider, usageLimits, installedVersion }) => ({
+        ...provider,
+        usageLimits,
+        ...(installedVersion === undefined ? {} : { installedVersion }),
+      })),
       Effect.map(stampIdentity),
       Effect.provideService(OpenCodeServerOwner.OpenCodeServerOwner, probeServerOwner),
       Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),

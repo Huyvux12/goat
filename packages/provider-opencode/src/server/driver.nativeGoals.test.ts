@@ -321,7 +321,7 @@ it.layer(layer)("OpenCode native goal support", (it) => {
         displayName: undefined,
         environment: [],
         enabled: true,
-        config: { ...OpenCodeDriver.defaultConfig(), serverUrl: "http://127.0.0.1:4096" },
+        config: { ...OpenCodeDriver.defaultConfig(), serverUrl: "http://opencode.example:4096" },
       }).pipe(
         Effect.provideService(HttpClient.HttpClient, http),
         // A configured server is reached over HTTP only; nothing local may run or start.
