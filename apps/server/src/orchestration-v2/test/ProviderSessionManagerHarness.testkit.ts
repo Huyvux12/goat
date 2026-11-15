@@ -4,13 +4,6 @@ import {
   type TestProviderRuntimeState,
   CODEX_DRIVER,
 } from "../ProviderSessionFixture.testkit.ts";
-export {
-  makeProviderThread,
-  modelSelection,
-  CODEX_DRIVER,
-  runtimePolicy,
-  emptyState,
-} from "../ProviderSessionFixture.testkit.ts";
 import * as AdapterInfrastructure from "../../provider/ProviderOrchestrationAdapterInfrastructure.ts";
 import * as NetAddress from "effect/net/NetAddress";
 import * as NodeServices from "@effect/platform-node/NodeServices";
