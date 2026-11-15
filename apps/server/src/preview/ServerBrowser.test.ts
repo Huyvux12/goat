@@ -2477,7 +2477,7 @@ const certificateError = {
 };
 const dataUrl = `data:text/html,${"PAYLOAD".repeat(300)}`;
 
-it.live("reports why a page failed to load while the tab shows the error page", () =>
+it.effect("reports why a page failed to load while the tab shows the error page", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const { broker, tabId } = yield* ready;
@@ -2529,7 +2529,7 @@ it.live("reports why a page failed to load while the tab shows the error page", 
   ).pipe(Effect.provide(layer)),
 );
 
-it.live("reports a desktop tab's load failure from before the server connected", () =>
+it.effect("reports a desktop tab's load failure from before the server connected", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const browser = yield* ServerBrowser.ServerBrowser;
