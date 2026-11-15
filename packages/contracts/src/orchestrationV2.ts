@@ -1681,6 +1681,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     exitCode: Schema.optional(Schema.Int),
     /** Set when the command is a monitor, so background work lists it as a monitor. */
     monitor: Schema.optional(Schema.Boolean),
+    completionWake: Schema.optional(Schema.Literal("always")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2135,6 +2136,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunStopRequested: Schema.optional(Schema.Boolean),
   latestRunStartHeld: Schema.optional(Schema.Boolean),
   latestRunCompletionNotification: Schema.optional(Schema.String),
+  /** The latest run answers a background-work progress wake, like a Monitor line, not a terminal one. Absent from older servers. */
+  latestRunBackgroundWake: Schema.optional(Schema.Boolean),
   activeRunId: Schema.NullOr(RunId),
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activityRunStatus: Schema.optional(
@@ -2569,6 +2572,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     exitCode: Schema.optional(Schema.Int),
     /** Set when the command is a monitor, so background work lists it as a monitor. */
     monitor: Schema.optional(Schema.Boolean),
+    completionWake: Schema.optional(Schema.Literal("always")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
