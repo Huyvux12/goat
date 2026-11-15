@@ -204,7 +204,7 @@ const withRequestId = (
     : entry;
 
 /** Every turn/start follows a config/read; inserts that exchange and shifts later client ids. */
-export function withConfigReadBeforeTurnStart(
+function withConfigReadBeforeTurnStart(
   entries: ReadonlyArray<CodexReplay.CodexAppServerReplayEntry>,
 ): Array<CodexReplay.CodexAppServerReplayEntry> {
   const result: Array<CodexReplay.CodexAppServerReplayEntry> = [];
