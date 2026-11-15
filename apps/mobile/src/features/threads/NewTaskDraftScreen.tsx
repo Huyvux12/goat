@@ -295,10 +295,6 @@ export function NewTaskDraftScreen(props: {
   };
   const cycleEnvironmentCommands = environments.length > 1 ? (["cycleHost"] as const) : [];
   useHardwareKeyboardCommand(cycleEnvironmentCommands, cycleEnvironment);
-  const composerWorkspaceCwd =
-    (flow.workspaceMode === "worktree"
-      ? selectedProject?.workspaceRoot
-      : (flow.selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
   const preventRemove =
     (isIncomingShareTransferPending && !isProjectPickerReturnActive) ||
     isCancellingShareImport ||
@@ -1059,7 +1055,7 @@ export function NewTaskDraftScreen(props: {
         environmentId={selectedProject.environmentId}
         cloudState={DRAFT_CLOUD_STATE}
         header={
-          <DraftThreadHeader thread={thread} project={selectedProject} cwd={composerWorkspaceCwd} />
+          <DraftThreadHeader thread={thread} project={selectedProject} cwd={flow.workspaceCwd} />
         }
         draftMode={{
           content: heroViewport,
@@ -1100,7 +1096,7 @@ export function NewTaskDraftScreen(props: {
         onCancelQueuedRunEdit={() => {}}
         onRemoveQueuedEditAttachment={() => {}}
         projectWorkspaceRoot={selectedProject.workspaceRoot}
-        threadCwd={composerWorkspaceCwd}
+        threadCwd={flow.workspaceCwd}
         selectedThreadQueueCount={0}
         queuedMessages={[]}
         dispatchingMessageId={null}

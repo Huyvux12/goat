@@ -1,10 +1,11 @@
-import { settingsSecretLiteral } from "@goat/contracts";
+import { settingsSecretLiteral, type ServerProviderModel } from "@goat/contracts";
 import { ProviderDriverKind, TextGenerationError } from "@goat/contracts";
 import { OpenCodeSettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
+import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -31,7 +32,7 @@ import type { ProviderTextGeneration } from "@goat/provider-core/server/textGene
 import { ProviderDriverError } from "@goat/provider-core/server/errors";
 import { openCodeUsageReader, type OpenCodeUsageReaderEnv } from "./usage.ts";
 import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
-import { loadOpenCode2Catalog } from "./openCode2Catalog.ts";
+import { loadOpenCode2Catalog, loadOpenCode2DirectoryCatalog } from "./openCode2Catalog.ts";
 import {
   checkOpenCodeProviderStatus,
   loadOpenCode2GlobalSkills,
@@ -39,9 +40,12 @@ import {
   makeOpenCode2ModelLoader,
   makePendingOpenCodeProvider,
   openCode2CommandsToServerProviderSlashCommands,
+  openCode2ProviderModels,
   openCode2SkillsToServerProviderSkills,
   openCodeSkillsToServerProviderSkills,
   openCodeCommandsToServerProviderSlashCommands,
+  openCodeProviderModels,
+  readSettledOpenCode2Catalog,
 } from "./status.ts";
 import { makeManagedServerProvider } from "@goat/provider-core/server/managedProvider";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
@@ -127,6 +131,17 @@ function byOpenCodeRuntime<A, E, R, PE>(
     Effect.orElseSucceed(() => undefined),
     Effect.flatMap((result) => (result?.generation === "v2" ? paths.v2 : paths.v1)),
   );
+}
+
+// An unread catalog keeps what the registry found before rather than the machine catalog.
+function workspaceModelsFor(
+  machineModels: ReadonlyArray<ServerProviderModel>,
+  cwdModels: Option.Option<ReadonlyArray<ServerProviderModel>>,
+) {
+  if (Option.isNone(cwdModels)) return { workspaceModelsPending: true };
+  return Equal.equals(cwdModels.value, machineModels)
+    ? {}
+    : { models: cwdModels.value, workspaceModels: cwdModels.value };
 }
 
 // Hot reads use the last successful probe; session opens await it to select the correct protocol.
@@ -588,11 +603,22 @@ export const OpenCodeDriver: ProviderDriver<
               slashCommandsPending: undefined,
             })),
           ),
+          // A project's opencode.jsonc can define its own providers.
+          models: OpenCodeRuntime.loadOpenCodeProviderCatalog(client).pipe(
+            Effect.timeoutOption("10 seconds"),
+            Effect.map(
+              Option.flatMapNullishOr((catalog) =>
+                openCodeProviderModels(effectiveConfig, catalog),
+              ),
+            ),
+            Effect.orElseSucceed(() => Option.none<ReadonlyArray<ServerProviderModel>>()),
+          ),
         },
         { concurrency: "unbounded" },
       ).pipe(
-        Effect.map(({ skills, commandInventory }) => ({
+        Effect.map(({ skills, commandInventory, models }) => ({
           skills,
+          models,
           ...commandInventory,
         })),
       );
@@ -695,23 +721,39 @@ export const OpenCodeDriver: ProviderDriver<
               ),
               Effect.flatMap((probed) =>
                 byOpenCodeRuntime(Effect.succeed(probed), {
-                  v2: Effect.all([
-                    snapshot.getSnapshot,
-                    listOpenCode2Workspace(cwd).pipe(
-                      Effect.timeout("20 seconds"),
-                      Effect.mapError(
-                        (cause) =>
-                          new ProviderDriverError({
-                            driver: DRIVER_KIND,
-                            instanceId,
-                            detail: `Failed to list OpenCode commands and skills for '${cwd}'`,
-                            cause,
-                          }),
+                  v2: Effect.all(
+                    [
+                      snapshot.getSnapshot,
+                      // A project's opencode.jsonc can define its own providers.
+                      readSettledOpenCode2Catalog(
+                        openCode2ProbeServer.withConnection(({ client }) =>
+                          loadOpenCode2DirectoryCatalog(client, pathService.resolve(cwd)),
+                        ),
+                      ).pipe(
+                        Effect.map(
+                          Option.map((catalog) =>
+                            openCode2ProviderModels(effectiveConfig, catalog),
+                          ),
+                        ),
                       ),
-                    ),
-                  ]).pipe(
-                    Effect.map(([machineSnapshot, { skills, commands }]) => ({
+                      listOpenCode2Workspace(cwd).pipe(
+                        Effect.timeout("20 seconds"),
+                        Effect.mapError(
+                          (cause) =>
+                            new ProviderDriverError({
+                              driver: DRIVER_KIND,
+                              instanceId,
+                              detail: `Failed to list OpenCode commands and skills for '${cwd}'`,
+                              cause,
+                            }),
+                        ),
+                      ),
+                    ],
+                    { concurrency: "unbounded" },
+                  ).pipe(
+                    Effect.map(([machineSnapshot, cwdModels, { skills, commands }]) => ({
                       ...machineSnapshot,
+                      ...workspaceModelsFor(machineSnapshot.models, cwdModels),
                       skills: openCode2SkillsToServerProviderSkills(skills),
                       slashCommands: openCode2CommandsToServerProviderSlashCommands(commands),
                       // A finished scan lists at least the built-ins. None means it
@@ -723,12 +765,15 @@ export const OpenCodeDriver: ProviderDriver<
                     snapshot.getSnapshot,
                     loadWorkspaceForCwd(cwd).pipe(Effect.timeout("20 seconds")),
                   ]).pipe(
-                    Effect.map(([machineSnapshot, { skills, commands, slashCommandsPending }]) => ({
-                      ...machineSnapshot,
-                      skills: openCodeSkillsToServerProviderSkills(skills),
-                      slashCommands: openCodeCommandsToServerProviderSlashCommands(commands),
-                      slashCommandsPending,
-                    })),
+                    Effect.map(
+                      ([machineSnapshot, { skills, models, commands, slashCommandsPending }]) => ({
+                        ...machineSnapshot,
+                        ...workspaceModelsFor(machineSnapshot.models, models),
+                        skills: openCodeSkillsToServerProviderSkills(skills),
+                        slashCommands: openCodeCommandsToServerProviderSlashCommands(commands),
+                        slashCommandsPending,
+                      }),
+                    ),
                     Effect.mapError(
                       (cause) =>
                         new ProviderDriverError({

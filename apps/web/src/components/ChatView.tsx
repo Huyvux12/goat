@@ -240,6 +240,7 @@ import {
 } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { useOfferedSkills } from "./chat/providerSkillsWithBuiltIns";
+import { resolveProvidersForCwd } from "@goat/client-runtime/providerSkills";
 import { chatGitStatusAtom, NO_CHAT_GIT_STATUS_ATOM, vcsEnvironment } from "../state/vcs";
 import {
   type EnvironmentPresentation,
@@ -1269,10 +1270,18 @@ export default function ChatView(props: ChatViewProps) {
     : (primaryEnvironment?.serverConfig ?? null);
   const providerEnvironmentId = (activeThread ? activeEnvironment : primaryEnvironment)
     ?.environmentId;
-  const providerStatuses =
+  const gitCwd = activeProject
+    ? projectScriptCwd({
+        project: { cwd: activeProject.workspaceRoot },
+        worktreePath: activeThread?.worktreePath ?? null,
+      })
+    : null;
+  const providerStatuses = resolveProvidersForCwd(
     (providerEnvironmentId === undefined
       ? undefined
-      : providersByEnvironment.get(providerEnvironmentId)) ?? EMPTY_PROVIDERS;
+      : providersByEnvironment.get(providerEnvironmentId)) ?? EMPTY_PROVIDERS,
+    gitCwd,
+  );
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.instanceId ??
@@ -1697,12 +1706,7 @@ export default function ChatView(props: ChatViewProps) {
     serverVisibleTurnItems,
     turnDiffSummaries.at(-1)?.completedAt ?? null,
   );
-  const gitCwd = activeProject
-    ? projectScriptCwd({
-        project: { cwd: activeProject.workspaceRoot },
-        worktreePath: activeThread?.worktreePath ?? null,
-      })
-    : null;
+
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const workspaceStatus = useThreadWorkspaceStatus(
     isServerThread ? activeThreadRef : null,

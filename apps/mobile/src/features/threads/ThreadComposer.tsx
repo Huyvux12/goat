@@ -93,6 +93,7 @@ import {
   buildModelOptions,
   groupByProvider,
   isModelSelectionUnavailable,
+  serverConfigForCwd,
 } from "../../lib/modelOptions";
 import { useScaledTextRole, type ScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { COLLAPSED_EDITOR_DEFAULT_INSET, collapsedEditorInset } from "./composer-editor-inset";
@@ -727,7 +728,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     ? undefined
     : currentModelSelection.instanceId;
   const modelOptions = buildModelOptions(
-    props.serverConfig,
+    serverConfigForCwd(props.serverConfig, props.projectCwd),
     currentModelSelection,
     lockedProviderInstanceId,
     props.selectedThread.projectId,
@@ -747,6 +748,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     ownerId: composerOwnerKey,
     environmentId: props.environmentId,
     projectId: props.selectedThread.projectId,
+    cwd: props.projectCwd,
     providerInstanceId: currentModelSelection.instanceId,
     ...(lockedProviderInstanceId ? { lockedProviderInstanceId } : {}),
     providerGroups: threadProviderGroups,
