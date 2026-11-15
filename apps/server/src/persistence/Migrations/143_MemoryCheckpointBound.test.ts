@@ -57,7 +57,7 @@ const layer = Store.layer.pipe(
 );
 
 it.effect(
-  "batches migration 123 reads while preserving each space's forget reservation (#2412)",
+  "batches MemoryCheckpointBound migration reads while preserving each space's forget reservation (#2412)",
   () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
