@@ -1,3 +1,4 @@
+import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import { AgentScope } from "@goat/shared/AgentScope";
 /** The native-account-command harness for ProviderTurnStartService tests. */
 import * as MemorySnapshot from "../memory/MemorySnapshot.ts";
@@ -555,6 +556,7 @@ export function makeLocalCommandHarness(input: {
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         input.providerCliGate ?? Layer.empty,
         IdAllocator.layer,
+        Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({}),
         layerWorktreeLocation(input.worktreesDir),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })

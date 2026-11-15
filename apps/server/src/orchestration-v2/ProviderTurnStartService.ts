@@ -67,6 +67,7 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import { settledBeforeStartRun } from "./runTerminationCause.ts";
 import { abandonedTurnRepairEvents, endedRunsByAttempt } from "./goat/StoppedEarlierTurn.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -122,6 +123,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | TurnItemPositionStore.TurnItemPositionStoreV2
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -140,6 +142,7 @@ export const layer: Layer.Layer<
     const memorySnapshot = yield* Effect.serviceOption(MemorySnapshot.MemorySnapshot);
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
     const adapterRegistry = yield* Effect.serviceOption(ProviderAdapters.ProviderAdapterRegistryV2);
     const cloudSources = yield* Effect.serviceOption(CloudSource.CloudTaskSourceService);
     const explainOpenFailure = yield* openFailureExplainer;
@@ -806,6 +809,7 @@ export const layer: Layer.Layer<
           restartNote,
           attachments: message.attachments,
         });
+      let recoveryTurnItem: OrchestrationV2TurnItem | undefined;
       let resumedRetryHandoff: ReadonlyArray<OrchestrationV2ContextHandoff> | undefined;
       let resumedHandoffContext: ReturnType<typeof handoffContextForThread> | undefined;
       const loadedProviderThread = yield* Effect.gen(function* () {
@@ -992,6 +996,48 @@ export const layer: Layer.Layer<
         const { handoff, transferId, createdAt } = yield* recoveryHandoff;
         effectiveHandoffs = withRecoveryHandoff(handoff, effectiveHandoffs);
         resumeFellBack = true;
+        const previousRun = projection.runs.findLast(
+          (candidate) =>
+            candidate.providerThreadId === providerThread.id &&
+            candidate.ordinal < run.ordinal &&
+            candidate.startedAt !== null,
+        );
+        const handoffTurnItemId = idAllocator.derive.runSignalTurnItem({
+          runId,
+          signal: "resume-fallback-handoff",
+        });
+        recoveryTurnItem = {
+          id: handoffTurnItemId,
+          threadId: projection.thread.id,
+          runId,
+          nodeId: rootNode.id,
+          providerThreadId: providerThread.id,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: yield* turnItemPositions.allocate({
+            threadId: projection.thread.id,
+            turnItemId: handoffTurnItemId,
+            runId,
+            runOrdinal: run.ordinal,
+            placement: "run_start",
+          }),
+          status: "completed",
+          title: "Recovered context",
+          startedAt: createdAt,
+          completedAt: createdAt,
+          updatedAt: createdAt,
+          type: "handoff",
+          contextHandoffId: handoff.id,
+          fromProviderThreadIds: handoff.fromProviderThreadIds,
+          toProviderThreadId: handoff.toProviderThreadId,
+          fromProviderInstanceIds: [providerThread.providerInstanceId],
+          toProviderInstanceId: run.providerInstanceId,
+          fromModelSelections: previousRun === undefined ? [] : [previousRun.modelSelection],
+          toModel: run.modelSelection.model,
+          strategy: handoff.strategy,
+          summary: handoff.summaryText,
+        };
         yield* eventSink.write({
           events: [
             {
@@ -1161,6 +1207,19 @@ export const layer: Layer.Layer<
                   updatedAt: now,
                   consumedAt: now,
                 },
+              },
+            ]),
+        ...(recoveryTurnItem === undefined
+          ? []
+          : [
+              {
+                id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                type: "turn-item.updated" as const,
+                threadId: projection.thread.id,
+                runId: run.id,
+                providerInstanceId: run.providerInstanceId,
+                occurredAt: now,
+                payload: recoveryTurnItem,
               },
             ]),
         {

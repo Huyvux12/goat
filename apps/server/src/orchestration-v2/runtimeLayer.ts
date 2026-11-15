@@ -207,6 +207,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      TurnItemPositionStore.layer,
       WorktreeSnapshotStoreLive.layer.pipe(Layer.provide(GitVcsDriver.layer)),
     ),
   ),
