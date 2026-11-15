@@ -366,7 +366,8 @@ with `goat_call {path:"pull_request.watch"}` and keep the thread working between
 
 The server checks every two minutes. Checks waiting for workflow approval are reported once and
 follow the failed-check notification setting. By default, failed checks, passing required checks, and other
-people's comments or reviews wake the agent. Your own comments do not. Bot comments are ignored
+people's comments or reviews wake the agent. On github.com, the merge queue dropping the pull request
+without merging it follows the failed-check setting and carries GitHub's reason. Your own comments do not. Bot comments are ignored
 unless the bot is listed in **Bots that count as people**. Merge conflicts do not wake a thread idle
 for more than 3 days. In **Settings → Organization**, choose **React** to wake the agent immediately,
 **Keep as context** to record an update on the timeline and include it with the next wake without

@@ -134,6 +134,62 @@ describe("PullRequestCapabilities", () => {
   });
 });
 
+describe("PullRequestDetail merge queue removal", () => {
+  const detail = {
+    ...LIST_RESULT.entries[0],
+    workspaceRoot: "/workspace/sample-repo",
+    body: "",
+    changedFiles: 1,
+    mergedAt: null,
+    closedAt: null,
+    reviewers: [],
+    checks: [],
+    mergeCapabilities: { merge: true, squash: true, rebase: true },
+    capabilities: {
+      diff: true,
+      comment: true,
+      actions: [],
+      mergeMethods: [],
+      search: true,
+      review: { inlineComment: true, reply: true, resolve: true, verdicts: [] },
+      reviewers: { request: true, listCandidates: true },
+    },
+    viewerPermissions: {
+      actions: [],
+      verdicts: [],
+      comment: true,
+      resolve: true,
+      requestReviewers: true,
+    },
+  };
+  const removal = { id: "RMQE_1", removedAt: "2026-07-02T00:00:00Z", reason: "CI failed" };
+  // A peer built from dev before merge queue removals: the same contract minus that one field.
+  const { mergeQueueRemoval: _addedField, ...fieldsBeforeRemovals } = PullRequestDetail.fields;
+  const decodeWithPeerBeforeRemovals = Schema.decodeUnknownSync(
+    Schema.toCodecJson(Schema.Struct(fieldsBeforeRemovals)),
+  );
+
+  it("reads an older server's detail, which reports no removal", () => {
+    const decoded = decodeDetail(detail);
+    expect(Object.hasOwn(decoded, "mergeQueueRemoval")).toBe(false);
+  });
+
+  it("an older peer accepts a detail that reports a removal and drops the unknown key", () => {
+    const encoded = JSON.parse(JSON.stringify({ ...detail, mergeQueueRemoval: removal }));
+    expect(decodeDetail(encoded).mergeQueueRemoval).toEqual(removal);
+    const decoded = decodeWithPeerBeforeRemovals(encoded);
+    expect(Object.hasOwn(decoded, "mergeQueueRemoval")).toBe(false);
+    expect(decoded.title).toBe(detail.title);
+  });
+
+  it("rejects a removal without an id or with a reason that is not text", () => {
+    expect(() => decodeDetail({ ...detail, mergeQueueRemoval: { ...removal, id: " " } })).toThrow();
+    expect(() =>
+      decodeDetail({ ...detail, mergeQueueRemoval: { ...removal, reason: 5 } }),
+    ).toThrow();
+  });
+});
+
 describe("resolvePullRequestAuthorFilter", () => {
   it("reads me as the signed-in account on the host", () => {
     expect(resolvePullRequestAuthorFilter("me", "bilal")).toBe("bilal");
