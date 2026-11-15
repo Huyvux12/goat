@@ -44,7 +44,6 @@ import {
   ProviderInstanceId,
   ServerSettings,
   ServerProvider,
-  type ServerProviderSlashCommand,
   type ServerSettings as ContractServerSettings,
 } from "@goat/contracts";
 
@@ -53,7 +52,7 @@ import { ChildProcessSpawner } from "effect/process";
 import { deepMerge } from "@goat/shared/Struct";
 import { createModelCapabilities } from "@goat/shared/model";
 
-import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
+import { checkCodexProviderStatus } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
@@ -82,6 +81,14 @@ import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./ProviderRegistry.ts";
 
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@goat/provider-core/server/maintenanceResolver";
+import {
+  selectDescriptor,
+  booleanDescriptor,
+  claudeCapabilities,
+  OBSOLETE_CODEX_APP_SERVER,
+  codexModelCapabilities,
+  makeCodexProbeSnapshot,
+} from "./ProviderRegistry.fixtures.testkit.ts";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
 
@@ -148,91 +155,6 @@ const layerBackgroundPolicyAlwaysRun = Layer.mock(BackgroundPolicy.BackgroundPol
   shouldRunScopeWork: () => Effect.succeed(true),
   shouldRunOpportunisticWork: Effect.succeed(true),
 });
-
-function selectDescriptor(
-  id: string,
-  label: string,
-  options: ReadonlyArray<{ id: string; label: string; isDefault?: boolean }>,
-) {
-  return {
-    id,
-    label,
-    type: "select" as const,
-    options: [...options],
-    ...(options.find((option) => option.isDefault)?.id
-      ? { currentValue: options.find((option) => option.isDefault)?.id }
-      : {}),
-  };
-}
-
-function booleanDescriptor(id: string, label: string) {
-  return {
-    id,
-    label,
-    type: "boolean" as const,
-  };
-}
-
-type TestClaudeCapabilities = {
-  readonly email: string | undefined;
-  readonly subscriptionType: string | undefined;
-  readonly tokenSource: string | undefined;
-  readonly apiKeySource: string | undefined;
-  readonly apiProvider: string | undefined;
-  readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
-};
-
-function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
-  return () =>
-    Effect.succeed({
-      email: undefined,
-      subscriptionType: undefined,
-      tokenSource: undefined,
-      apiKeySource: undefined,
-      apiProvider: undefined,
-      slashCommands: [],
-      ...overrides,
-    });
-}
-
-// The npm `@openai/codex` 0.1 CLI treats `app-server` as a prompt and exits 1.
-const OBSOLETE_CODEX_APP_SERVER = `echo "Missing OpenAI API key." >&2; exit 1`;
-
-const codexModelCapabilities = createModelCapabilities({
-  optionDescriptors: [
-    selectDescriptor("reasoningEffort", "Reasoning", [
-      { id: "high", label: "High", isDefault: true },
-      { id: "low", label: "Low" },
-    ]),
-    booleanDescriptor("fastMode", "Fast Mode"),
-  ],
-}) satisfies NonNullable<ServerProvider["models"][number]["capabilities"]>;
-
-function makeCodexProbeSnapshot(
-  input: Partial<CodexAppServerProviderSnapshot> = {},
-): CodexAppServerProviderSnapshot {
-  return {
-    version: "1.0.0",
-    account: {
-      account: {
-        type: "chatgpt",
-        email: "test@example.com",
-        planType: "pro",
-      },
-      requiresOpenaiAuth: false,
-    },
-    models: [
-      {
-        slug: "gpt-live-codex",
-        name: "GPT Live Codex",
-        isCustom: false,
-        capabilities: codexModelCapabilities,
-      },
-    ],
-    skills: [],
-    ...input,
-  };
-}
 
 const awaitPersistedProvider = (
   registry: ProviderRegistry.ProviderRegistry["Service"],
