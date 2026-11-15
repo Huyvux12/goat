@@ -181,6 +181,7 @@ export function makeHarness(options: HarnessOptions = {}) {
               : Option.none(),
         ),
       getByWorkspaceRoot: () => Effect.succeed(Option.some(project)),
+      workspaceScanDirectory: () => Effect.die("unused"),
       snapshot: Effect.die("unused"),
       awaitRepositoryIdentity: () => Effect.die("unused"),
       getShell: () => Effect.die("unused"),
