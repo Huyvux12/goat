@@ -9,7 +9,7 @@ import { channelEnvironment } from "~/state/channels";
 import { useEnvironment } from "~/state/environments";
 import { GoatBotEditBotDialog } from "./GoatBotEditBotDialog";
 import { GoatBotMainProfileContext, GoatBotMemberContext } from "./goatBotMemberContext";
-import { useGoatBotHomeRemove, useGoatBotHomeState } from "./goatBotHomeState";
+import { useGoatBotHomeState } from "./goatBotHomeState";
 
 const NO_PERMISSION = Atom.make(false);
 
@@ -26,7 +26,6 @@ export function GoatBotEditBotButton() {
     supported ? channelEnvironment.updateBot.permissionAtom(bot.environmentId) : NO_PERMISSION,
   );
   const [editing, setEditing] = useGoatBotHomeState<BotProfile | null>("input:editBot:open", null);
-  const removeHome = useGoatBotHomeRemove();
   if (bot === null || !canEdit) return null;
   return (
     <>
@@ -40,15 +39,7 @@ export function GoatBotEditBotButton() {
         <PencilIcon aria-hidden />
       </Button>
       {editing !== null ? (
-        <GoatBotEditBotDialog
-          bot={editing}
-          canSubmit
-          onClose={() => {
-            // Any end of Edit bot (a save, Cancel, Escape, its backdrop) drops its draft.
-            setEditing(null);
-            removeHome((key) => key.startsWith("input:editBot:"));
-          }}
-        />
+        <GoatBotEditBotDialog bot={editing} canSubmit onClose={() => setEditing(null)} />
       ) : null}
     </>
   );

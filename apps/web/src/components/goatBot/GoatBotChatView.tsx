@@ -11,7 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
 import { useGoatBotHomePresentation } from "./goatBotLayout";
-import { closeGoatBotHome, useGoatBotHomeStore } from "./goatBotHomeState";
+import { useGoatBotHomeStore } from "./goatBotHomeState";
 
 import { cn } from "~/lib/utils";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
@@ -214,12 +214,6 @@ function GoatBotChatViewContent({
   // A bot or environment switch remounts Home, so its history walk starts over.
   const homeKey = goatBotHomeKey(bot?.environmentId ?? null, member?.botId ?? null);
   const homeStore = useGoatBotHomeStore(homeKey);
-  // Any close of Home (chip, Close, Back to chat, Escape, the dimmed chat, a draft or file it opens).
-  const closeHome = () => {
-    setHomeReturn(null);
-    setPanelOpen(false);
-    closeGoatBotHome(homeStore);
-  };
   const [openedHomeEntry, setOpenedHomeEntry] = useState<string | null>(null);
   const [homeReturn, setHomeReturn] = useState<{
     taskId: import("@goat/contracts").ChannelTaskId;
@@ -300,7 +294,7 @@ function GoatBotChatViewContent({
     ? (text: string) => {
         if (narrow) {
           sheetClosedFor.current = "draft";
-          closeHome();
+          setPanelOpen(false);
         }
         if (composerRef.current?.offerDraft(text) === false) {
           toastManager.add({
@@ -324,7 +318,7 @@ function GoatBotChatViewContent({
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
         if (narrow) {
           sheetClosedFor.current = "file";
-          closeHome();
+          setPanelOpen(false);
         }
         setViewing({ environmentId: bot.environmentId, threadId: bot.threadId, file });
       }
@@ -397,7 +391,10 @@ function GoatBotChatViewContent({
                 aria-label={`${title} home`}
                 aria-expanded={panelOpen}
                 disabled={!bot}
-                onClick={() => (panelOpen ? closeHome() : setPanelOpen(true))}
+                onClick={() => {
+                  if (panelOpen) setHomeReturn(null);
+                  setPanelOpen(!panelOpen);
+                }}
                 className="goat-name-capsule max-w-full min-w-0 text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
               >
                 <span className="goat-name-avatar flex shrink-0">
@@ -621,7 +618,8 @@ function GoatBotChatViewContent({
             onDraft={onDraft}
             notesRefreshKey={notesRefreshKey}
             onClose={() => {
-              closeHome();
+              setHomeReturn(null);
+              setPanelOpen(false);
               // The chip says whether the panel is open, so closing hands control back to it.
               homeRef.current?.focus();
             }}
@@ -637,7 +635,13 @@ function GoatBotChatViewContent({
         </aside>
       )}
       {bot && narrow && (
-        <Sheet open={panelOpen} onOpenChange={(open) => (open ? setPanelOpen(true) : closeHome())}>
+        <Sheet
+          open={panelOpen}
+          onOpenChange={(open) => {
+            if (!open) setHomeReturn(null);
+            setPanelOpen(open);
+          }}
+        >
           {/* A phone-width window gives the home the whole screen; wider, the chat stays beside it. */}
           <SheetPopup
             finalFocus={sheetFinalFocus}
@@ -652,7 +656,10 @@ function GoatBotChatViewContent({
               threadId={bot.threadId}
               onDraft={onDraft}
               notesRefreshKey={notesRefreshKey}
-              onShowChat={closeHome}
+              onShowChat={() => {
+                setHomeReturn(null);
+                setPanelOpen(false);
+              }}
               peekRows={rowsForTask}
               peekSource={source}
               onRetryInput={onRetryInput}

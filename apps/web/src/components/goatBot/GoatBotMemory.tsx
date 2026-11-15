@@ -23,7 +23,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { useGoatBotMember, useGoatBotName } from "./goatBotMemberContext";
 import { GoatBotPanelEmpty } from "./GoatBotPanelEmpty";
-import { useGoatBotHomeRemove, useGoatBotHomeState } from "./goatBotHomeState";
+import { useGoatBotHomeState } from "./goatBotHomeState";
 import { HoldsNavigation } from "~/lib/navigationHolds";
 
 /** GOAT Bot's notes, read only; changing or forgetting one is a message the person sends. */
@@ -186,17 +186,7 @@ function NoteRow({
   source: string | null;
   onDraft: ((text: string) => void) | undefined;
 }) {
-  const [wording, storeWording] = useGoatBotHomeState<string | null>(
-    `input:wording:${entry}`,
-    null,
-  );
-  const removeHome = useGoatBotHomeRemove();
-  // A wording kept from an older read of the notes has no row to open in again.
-  const thisRead = `input:wording:${entry.slice(0, entry.lastIndexOf(":") + 1)}`;
-  const setWording = (next: string | null) => {
-    storeWording(next);
-    removeHome((key) => key.startsWith("input:wording:") && !key.startsWith(thisRead));
-  };
+  const [wording, setWording] = useGoatBotHomeState<string | null>(`input:wording:${entry}`, null);
   const [forgetting, setForgetting] = useGoatBotHomeState(`position:forgetting:${entry}`, false);
   const textId = useId();
   const draft = wording === null ? null : changeNoteDraft(note, wording);
