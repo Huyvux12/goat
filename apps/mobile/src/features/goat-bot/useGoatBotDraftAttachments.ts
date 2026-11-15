@@ -1,7 +1,6 @@
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@goat/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import * as Dialog from "../../components/ui/Dialog";
 import { retainComposerAttachmentFile } from "../../lib/composerAttachmentFiles";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
 import {
@@ -20,8 +19,8 @@ export function useGoatBotDraftAttachments(shown: boolean, conversation: string)
   const [intake, setIntake] = useState(0);
   const draftFiles = useRef(new Map<string, () => void>());
   const pickerLifetime = useRef<AbortController | null>(null);
-  // Files the message holds, counted as they arrive: two picks can answer before either renders.
-  const held = useRef(0);
+  // The files the message holds by id, kept as they arrive: two answers can land before a render.
+  const held = useRef(new Map<string, DraftComposerAttachment>());
   const releaseAll = () => {
     for (const release of draftFiles.current.values()) release();
     draftFiles.current.clear();
@@ -35,8 +34,10 @@ export function useGoatBotDraftAttachments(shown: boolean, conversation: string)
     [],
   );
   const pickingIn = shown ? conversation : null;
+  // A layout effect: its cleanup runs inside the commit that changes the chat, so no answer can
+  // slip in between the new conversation showing and the old pick ending.
   // oxlint-disable-next-line goat/react-effect-budget -- A pick ends when its chat stops being shown or shows another conversation.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pickingIn === null) return;
     const controller = new AbortController();
     pickerLifetime.current = controller;
@@ -52,22 +53,16 @@ export function useGoatBotDraftAttachments(shown: boolean, conversation: string)
     maxUploadBytes,
     getLifetime: () => pickerLifetime.current?.signal,
     onIntake: (change) => setIntake((count) => count + change),
-    onPicked: (picked) => {
-      if (!pickerLifetime.current || pickerLifetime.current.signal.aborted) {
+    onPicked: (picked, lifetime) => {
+      if (lifetime.aborted || lifetime !== pickerLifetime.current?.signal) {
         releaseGoatBotAttachments(picked);
-        return;
+        return null;
       }
-      const room = Math.max(0, PROVIDER_SEND_TURN_MAX_ATTACHMENTS - held.current);
-      const kept = picked.slice(0, room);
-      if (kept.length < picked.length) {
-        releaseGoatBotAttachments(picked.slice(room));
-        Dialog.alert(
-          "Could not attach file",
-          `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`,
-        );
-      }
-      held.current += kept.length;
+      const fresh = picked.filter((attachment) => !held.current.has(attachment.id));
+      const room = Math.max(0, PROVIDER_SEND_TURN_MAX_ATTACHMENTS - held.current.size);
+      const kept = fresh.slice(0, room);
       for (const attachment of kept) {
+        held.current.set(attachment.id, attachment);
         if (attachment.fileUri !== undefined) {
           draftFiles.current.set(
             attachment.id,
@@ -77,19 +72,24 @@ export function useGoatBotDraftAttachments(shown: boolean, conversation: string)
           );
         }
       }
-      setAttachments((current) => [...current, ...kept]);
+      if (kept.length > 0) setAttachments((current) => [...current, ...kept]);
+      if (kept.length === fresh.length) return null;
+      releaseGoatBotAttachments(fresh.slice(room));
+      return `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
     },
   });
   const remove = (id: string) => {
-    if (attachments.some((attachment) => attachment.id === id)) held.current -= 1;
+    const attachment = held.current.get(id);
+    if (attachment === undefined) return;
+    held.current.delete(id);
     draftFiles.current.get(id)?.();
     draftFiles.current.delete(id);
-    releaseGoatBotAttachments(attachments.filter((attachment) => attachment.id === id));
-    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+    releaseGoatBotAttachments([attachment]);
+    setAttachments((current) => current.filter((item) => item.id !== id));
   };
   /** The message went out with its files: this draft no longer owns them. */
   const sent = () => {
-    held.current = 0;
+    held.current.clear();
     releaseAll();
     setAttachments([]);
   };

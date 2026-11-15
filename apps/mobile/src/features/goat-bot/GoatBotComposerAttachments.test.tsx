@@ -125,7 +125,7 @@ it("on a server that takes photos only, the task screen's + picks photos at once
   await view.press("Add attachment");
   expect(native.pickMedia).toHaveBeenCalledTimes(1);
   await act(async () => pick.answer({ attachments: [photo] }));
-  expect(view.onPicked).toHaveBeenCalledWith([photo]);
+  expect(view.onPicked).toHaveBeenCalledWith([photo], expect.any(AbortSignal));
   expect(view.intake).toEqual([1, -1]);
   await view.unmount();
 });
@@ -139,7 +139,7 @@ it("on a server that takes files, the task screen's + offers Photo Library and C
   await view.press("Choose Files");
   expect(native.pickFiles).toHaveBeenCalledTimes(1);
   await act(async () => pick.answer({ attachments: [photo] }));
-  expect(view.onPicked).toHaveBeenCalledWith([photo]);
+  expect(view.onPicked).toHaveBeenCalledWith([photo], expect.any(AbortSignal));
   await view.unmount();
 });
 

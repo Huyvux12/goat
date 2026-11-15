@@ -1,4 +1,4 @@
-import { act, type ReactNode } from "react";
+import { act, useLayoutEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
@@ -68,6 +68,7 @@ vi.mock("../../components/ComposerAttachmentStrip", () => ({
   ComposerAttachmentStrip: () => null,
 }));
 
+import type { GoatBotAttachmentPickTarget } from "./GoatBotComposerAttachments";
 import { GoatBotComposerMenu } from "./GoatBotComposerMenu";
 import { useGoatBotDraftAttachments } from "./useGoatBotDraftAttachments";
 
@@ -91,27 +92,47 @@ function setup() {
 
 /** The photo picker answers when the test says so. */
 function heldPick() {
-  const pick = Promise.withResolvers<{ attachments: DraftComposerAttachment[] }>();
+  const pick = Promise.withResolvers<{ attachments: DraftComposerAttachment[]; error?: string }>();
   native.pickMedia.mockReturnValueOnce(pick.promise);
-  return (attachments: DraftComposerAttachment[]) =>
+  return (attachments: DraftComposerAttachment[], error?: string) =>
     act(async () => {
-      pick.resolve({ attachments });
+      pick.resolve({ attachments, ...(error === undefined ? {} : { error }) });
       await pick.promise;
     });
 }
 
-function Composer(props: {
+type Seen = { target: GoatBotAttachmentPickTarget | null };
+interface ComposerProps {
   readonly shown: boolean;
   readonly foreground: boolean;
   readonly conversation?: string;
-}) {
+  /** Gets the pick target the menu last received, the one a pick captures when it starts. */
+  readonly onTarget?: (target: GoatBotAttachmentPickTarget) => void;
+  /** Runs inside the commit that renders these props, before any later work can answer. */
+  readonly inCommit?: () => void;
+}
+
+function InCommit({ run }: { readonly run?: (() => void) | undefined }) {
+  useLayoutEffect(() => {
+    run?.();
+  }, [run]);
+  return null;
+}
+
+function Composer(props: ComposerProps) {
   const files = useGoatBotDraftAttachments(props.shown, props.conversation ?? "env/main");
+  const target = files.target(10_000_000);
+  const { onTarget } = props;
+  useLayoutEffect(() => {
+    onTarget?.(target);
+  });
   return (
     <>
+      <InCommit run={props.inCommit} />
       <GoatBotComposerMenu
         shown={props.shown && props.foreground}
         disabled={false}
-        attach={files.target(10_000_000)}
+        attach={target}
         onNewRoutine={() => {}}
       />
       <output aria-label="Files">{files.attachments.map((file) => file.id).join(",")}</output>
@@ -123,18 +144,32 @@ function Composer(props: {
           onClick={() => files.remove(file.id)}
         />
       ))}
+      {files.attachments.map((file) => (
+        <button
+          key={file.id}
+          aria-label={`Remove ${file.id} twice`}
+          onClick={() => {
+            files.remove(file.id);
+            files.remove(file.id);
+          }}
+        />
+      ))}
       <button aria-label="Sent" onClick={files.sent} />
     </>
   );
 }
 
-async function render(shown = true, foreground = true) {
+async function render(shown = true, foreground = true, seen?: Seen) {
+  const onTarget = seen
+    ? (target: GoatBotAttachmentPickTarget) => {
+        seen.target = target;
+      }
+    : undefined;
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  const draw = (next: { shown: boolean; foreground: boolean; conversation?: string }) =>
-    act(async () => root.render(<Composer {...next} />));
-  await draw({ shown, foreground });
+  const draw = (next: ComposerProps) => act(async () => root.render(<Composer {...next} />));
+  await draw({ shown, foreground, ...(onTarget ? { onTarget } : {}) });
   const find = (label: string) => container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
   return {
     draw,
@@ -261,6 +296,88 @@ it("a pick that answers after the chat moved to another conversation is released
     expect(view.files()).toBe("");
     expect(native.release).toHaveBeenCalledWith([photo("moved")]);
     expect(isComposerAttachmentFileRetained("file:///documents/moved.jpg")).toBe(false);
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("a pick that answers in the very commit that moves the chat to another conversation is released", async () => {
+  setup();
+  const seen: Seen = { target: null };
+  const view = await render(true, true, seen);
+  try {
+    const started = seen.target;
+    const lifetime = started?.getLifetime();
+    if (!started || !lifetime) throw new Error("expected a pick target");
+    await view.draw({
+      shown: true,
+      foreground: true,
+      conversation: "env/scout",
+      inCommit: () => started.onPicked([photo("crossing")], lifetime),
+    });
+    expect(view.files()).toBe("");
+    expect(native.release).toHaveBeenCalledWith([photo("crossing")]);
+    expect(isComposerAttachmentFileRetained("file:///documents/crossing.jpg")).toBe(false);
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("removing a file twice before the list renders counts it once, so the limit still holds", async () => {
+  setup();
+  const first = heldPick();
+  const second = heldPick();
+  const third = heldPick();
+  const view = await render();
+  try {
+    await view.press("Photo Library");
+    await first([photo("k1"), photo("k2")]);
+    await view.press("Remove k1 twice");
+    expect(view.files()).toBe("k2");
+    await view.press("Photo Library");
+    await second(Array.from({ length: 99 }, (_, index) => photo(`f${index}`)));
+    await view.press("Photo Library");
+    await third([photo("over")]);
+    expect(view.files().split(",")).toHaveLength(100);
+    expect(native.release).toHaveBeenCalledWith([photo("over")]);
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("the same files answered twice join the message once and stay on disk", async () => {
+  setup();
+  const seen: Seen = { target: null };
+  const view = await render(true, true, seen);
+  try {
+    const target = seen.target;
+    const lifetime = target?.getLifetime();
+    if (!target || !lifetime) throw new Error("expected a pick target");
+    await act(async () => {
+      target.onPicked([photo("twice")], lifetime);
+      target.onPicked([photo("twice")], lifetime);
+    });
+    expect(view.files()).toBe("twice");
+    expect(native.release).not.toHaveBeenCalled();
+    expect(isComposerAttachmentFileRetained("file:///documents/twice.jpg")).toBe(true);
+  } finally {
+    await view.unmount();
+  }
+});
+
+it("a pick past the limit that also brings the picker's own error says one thing", async () => {
+  setup();
+  const first = heldPick();
+  const second = heldPick();
+  const view = await render();
+  try {
+    await view.press("Photo Library");
+    await first(Array.from({ length: 100 }, (_, index) => photo(`g${index}`)));
+    await view.press("Photo Library");
+    await second([photo("extra")], "That file is too large.");
+    expect(native.alert).toHaveBeenCalledTimes(1);
+    expect(native.alert).toHaveBeenCalledWith("Could not attach file", "That file is too large.");
+    expect(native.release).toHaveBeenCalledWith([photo("extra")]);
   } finally {
     await view.unmount();
   }

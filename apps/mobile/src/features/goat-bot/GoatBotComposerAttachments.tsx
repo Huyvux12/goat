@@ -31,7 +31,14 @@ export interface GoatBotAttachmentPickTarget {
   /** Files are offered only when the server takes them; null means photos only. */
   readonly maxUploadBytes: number | null;
   readonly getLifetime: () => AbortSignal | undefined;
-  readonly onPicked: (attachments: ReadonlyArray<DraftComposerAttachment>) => void;
+  /**
+   * Picked files, with the lifetime the pick started in. Returns why some were not added, if any,
+   * which the pick then shows instead of a second alert.
+   */
+  readonly onPicked: (
+    attachments: ReadonlyArray<DraftComposerAttachment>,
+    lifetime: AbortSignal,
+  ) => string | null | void;
   /** A pick has started (1) or finished, picked, failed or cancelled (-1). */
   readonly onIntake?: ((change: 1 | -1) => void) | undefined;
 }
@@ -53,8 +60,9 @@ export function goatBotAttachmentPick(target: GoatBotAttachmentPickTarget) {
             releaseGoatBotAttachments(picked);
             return;
           }
-          if (picked.length > 0) target.onPicked(picked);
-          if (error) Dialog.alert("Could not attach file", error);
+          const refused = picked.length > 0 ? target.onPicked(picked, signal) : null;
+          const message = error ?? refused;
+          if (message) Dialog.alert("Could not attach file", message);
         },
         (cause: unknown) => {
           if (signal.aborted) return;

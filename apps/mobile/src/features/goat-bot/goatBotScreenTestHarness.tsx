@@ -419,13 +419,15 @@ vi.mock("../../lib/copyTextWithHaptic", () => ({ tryCopyTextWithHaptic: async ()
 vi.mock("./GoatBotMarkdown", () => ({ GoatBotMarkdown: () => null }));
 vi.mock("./GoatBotComposerAttachments", () => ({
   GoatBotAttachButton: (props: GoatBotAttachmentPickTarget & { disabled: boolean }) => {
-    picker.onPicked = props.onPicked;
+    // A pick answers in the lifetime current when it lands, or in an ended one after unmount.
+    picker.onPicked = (files) => props.onPicked(files, props.getLifetime() ?? AbortSignal.abort());
     return <button aria-label="Add attachment" disabled={props.disabled} />;
   },
   // The pick's contract at the native picker's edge: it holds the box from start to answer, and an
   // answer after its lifetime ended is released. GoatBotComposerAttachments.test pins the real one.
   goatBotAttachmentPick: (target: GoatBotAttachmentPickTarget) => {
-    picker.onPicked = target.onPicked;
+    picker.onPicked = (files) =>
+      target.onPicked(files, target.getLifetime() ?? AbortSignal.abort());
     return async (kind: "media" | "files") => {
       const signal = target.getLifetime();
       if (!signal) return;
@@ -437,7 +439,7 @@ vi.mock("./GoatBotComposerAttachments", () => ({
           picker.release(files);
           return;
         }
-        if (files.length > 0) target.onPicked(files);
+        if (files.length > 0) target.onPicked(files, signal);
         target.onIntake?.(-1);
       };
     };
