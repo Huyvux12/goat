@@ -928,4 +928,46 @@ it.layer(layerTest)("CursorDriver", (it) => {
         ]);
       }).pipe(Effect.scoped),
   );
+
+  it.effect("a status check reads the host environment once", () =>
+    Effect.gen(function* () {
+      let enumerations = 0;
+      const host = new Proxy<NodeJS.ProcessEnv>(
+        { CURSOR_API_KEY: "host-key" },
+        {
+          ownKeys: (target) => {
+            enumerations++;
+            return Reflect.ownKeys(target);
+          },
+        },
+      );
+      const client = HttpClient.make((request) =>
+        Effect.succeed(
+          request.url.endsWith("/v1/me")
+            ? HttpClientResponse.fromWeb(
+                request,
+                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+              )
+            : HttpClientResponse.fromWeb(request, Response.json({ items: [] })),
+        ),
+      );
+      const instance = yield* CursorDriver.create({
+        instanceId: ProviderInstanceId.make("cursor-one-read"),
+        displayName: "Cursor",
+        enabled: true,
+        environment: [],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, host),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      // The second refresh queues behind the creation-time check, so nothing else is running.
+      yield* instance.snapshot.refresh;
+      yield* instance.snapshot.refresh;
+      const before = enumerations;
+      yield* instance.snapshot.refresh;
+      // One capture gives the key, the backend and the sign-in label the same environment.
+      expect(enumerations - before).toBe(1);
+    }).pipe(Effect.scoped),
+  );
 });

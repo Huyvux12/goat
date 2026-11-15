@@ -46,6 +46,10 @@ interface AuthFlow {
 export interface CursorAuth {
   readonly controller: ProviderAuthController;
   readonly readApiKey: Effect.Effect<string | undefined, ProviderSetupError>;
+  /** The key a check uses when its environment holds `environmentKey`, else the stored sign-in. */
+  readonly readApiKeyFor: (
+    environmentKey: string | undefined,
+  ) => Effect.Effect<string | undefined, ProviderSetupError>;
   readonly requireApiKey: Effect.Effect<string, ProviderSetupError>;
   readonly requireSessionApiKey: (
     key: string | undefined,
@@ -121,10 +125,10 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
   const usesApiKey = (options.currentApiKey ?? Effect.succeed(configuredKey)).pipe(
     Effect.map((key) => Boolean(key?.trim())),
   );
+  const readApiKeyFor = (environmentKey: string | undefined) =>
+    readKey(environmentKey?.trim() || undefined);
   const readApiKey = Effect.suspend(() =>
-    (options.currentApiKey ?? Effect.succeed(configuredKey)).pipe(
-      Effect.flatMap((key) => readKey(key?.trim() || undefined)),
-    ),
+    (options.currentApiKey ?? Effect.succeed(configuredKey)).pipe(Effect.flatMap(readApiKeyFor)),
   );
 
   const requireKey = Effect.fn("CursorAuth.requireKey")(function* (
@@ -587,6 +591,7 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
   return {
     controller,
     readApiKey,
+    readApiKeyFor,
     requireApiKey,
     requireSessionApiKey,
     validateSessionApiKey,

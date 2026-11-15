@@ -220,16 +220,14 @@ export const CursorDriver: ProviderDriver<
           ),
         ),
     });
+    const stampWith = (draft: Parameters<typeof stampIdentity>[0], usesApiKey: boolean) =>
+      stampIdentity({
+        ...draft,
+        setup: { canAuthenticate: !usesApiKey, canInstall: false },
+        auth: { ...draft.auth, canLogout: !usesApiKey },
+      });
     const stampSnapshot = (draft: Parameters<typeof stampIdentity>[0]) =>
-      auth.usesApiKey.pipe(
-        Effect.map((usesApiKey) =>
-          stampIdentity({
-            ...draft,
-            setup: { canAuthenticate: !usesApiKey, canInstall: false },
-            auth: { ...draft.auth, canLogout: !usesApiKey },
-          }),
-        ),
-      );
+      auth.usesApiKey.pipe(Effect.map((usesApiKey) => stampWith(draft, usesApiKey)));
 
     // The last check's catalog fills in model defaults only for the account whose key loaded it.
     let catalog: {
@@ -293,11 +291,14 @@ export const CursorDriver: ProviderDriver<
       catalogModelsFor,
     );
 
-    const checkProvider = auth.readApiKey.pipe(
-      Effect.orElseSucceed(() => undefined),
-      Effect.flatMap((apiKey) =>
-        currentEnvironment.pipe(
-          Effect.flatMap((processEnv) =>
+    // One captured environment gives the check its key, backend and sign-in label.
+    const checkProvider = currentEnvironment.pipe(
+      // With no instance variables the merge is the live host object, so copy it once.
+      Effect.map((environment) => ({ ...environment })),
+      Effect.flatMap((processEnv) =>
+        auth.readApiKeyFor(processEnv.CURSOR_API_KEY).pipe(
+          Effect.orElseSucceed(() => undefined),
+          Effect.flatMap((apiKey) =>
             checkCursorProviderStatus(
               effectiveConfig,
               {
@@ -343,6 +344,7 @@ export const CursorDriver: ProviderDriver<
                   Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(processEnv))),
                 ),
               ),
+              Effect.map((draft) => stampWith(draft, Boolean(processEnv.CURSOR_API_KEY?.trim()))),
             ),
           ),
         ),
@@ -350,7 +352,6 @@ export const CursorDriver: ProviderDriver<
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(CursorKeychain.CursorKeychain, keychain),
-      Effect.flatMap(stampSnapshot),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
 
