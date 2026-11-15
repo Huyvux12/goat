@@ -19,6 +19,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ScheduledTaskRuns from "../scheduledTasks/ScheduledTaskRuns.ts";
+import { readRecentRuns } from "../scheduledTasks/scheduledTaskRecentRuns.ts";
 import {
   makeScheduledBotRoutines,
   ROUTINE_MESSAGE_PREFIX,
@@ -213,6 +214,28 @@ describe("GOAT Bot routines", () => {
       assert.deepStrictEqual(yield* said("assistant"), [ROUTINE_COPY.cannotStartWork]);
       assert.strictEqual((yield* firing(quiet.firingId))?.status, "completed");
       const inputId = (yield* linkOf(quiet.firingId))?.input_id;
+      // Its run reads as quiet in the routine's history, through the input it sent.
+      const workInputId = (yield* linkOf(work.firingId))?.input_id;
+      const history = yield* readRecentRuns(yield* SqlClient.SqlClient, [
+        { id: work.taskId, createdAt: AT },
+        { id: quiet.taskId, createdAt: AT },
+      ]);
+      assert.deepStrictEqual(
+        [work.taskId, quiet.taskId].map((taskId) =>
+          history
+            .get(taskId)
+            ?.map((run) => [
+              run.status,
+              run.quiet === true,
+              run.conversation?.threadId,
+              run.conversation?.inputId,
+            ]),
+        ),
+        [
+          [["completed", false, botThreadId, workInputId ?? "missing"]],
+          [["completed", true, botThreadId, inputId ?? "missing"]],
+        ],
+      );
       const snapshot = yield* gateway.getInput(inputId!, rpcContext);
       assert.strictEqual(snapshot.state, "replied");
       assert.strictEqual(snapshot.reply?.text, ROUTINE_COPY.noUpdate);
