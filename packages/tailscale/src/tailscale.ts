@@ -26,7 +26,7 @@ const TAILSCALE_STATUS_TIMEOUT = Duration.millis(3_500);
  */
 const TAILSCALE_KILL_GRACE = Duration.millis(500);
 const TAILSCALE_SERVE_TIMEOUT = Duration.seconds(10);
-const TAILSCALE_PROBE_TIMEOUT = Duration.millis(2_500);
+export const TAILSCALE_PROBE_TIMEOUT = Duration.millis(2_500);
 
 const tailscaleCommandForPlatform = (platform: NodeJS.Platform): "tailscale" | "tailscale.exe" =>
   platform === "win32" ? "tailscale.exe" : "tailscale";

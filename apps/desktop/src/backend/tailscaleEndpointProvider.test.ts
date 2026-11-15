@@ -1,11 +1,14 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as HostProcess from "@goat/shared/HostProcess";
+import { TAILSCALE_PROBE_TIMEOUT } from "@goat/tailscale";
 
 import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
 
@@ -223,6 +226,33 @@ Start Port    End Port
 
       assert.deepEqual(yield* magicDnsStatus("desktop-backend"), ["available"]);
       assert.deepEqual(yield* magicDnsStatus("another-server"), ["unavailable"]);
+    }).pipe(Effect.provide(layerUnusedTailscaleExternalServices)),
+  );
+
+  it.effect("gives up on a desktop backend that never answers at the probe timeout", () =>
+    Effect.gen(function* () {
+      const resolving = yield* resolveTailscaleAdvertisedEndpoints({
+        port: 3773,
+        serveEnabled: true,
+        networkInterfaces: {},
+        statusJson: `{"Self":{"DNSName":"desktop.example.ts.net.","TailscaleIPs":[]}}`,
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.never),
+        ),
+        Effect.forkChild,
+      );
+
+      yield* Effect.yieldNow;
+      assert.isUndefined(resolving.pollUnsafe());
+      yield* TestClock.adjust(TAILSCALE_PROBE_TIMEOUT);
+      assert.isDefined(resolving.pollUnsafe());
+      const endpoints = yield* Fiber.join(resolving);
+      assert.deepEqual(
+        endpoints.map((endpoint) => endpoint.status),
+        ["unavailable"],
+      );
     }).pipe(Effect.provide(layerUnusedTailscaleExternalServices)),
   );
 });

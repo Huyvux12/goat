@@ -16,6 +16,7 @@ import {
   readWindowsExcludedTcpPortRanges,
   reservedPortMessage,
   suggestFreePort,
+  TAILSCALE_PROBE_TIMEOUT,
   type TailscaleHttpsEndpointClassification,
   type TailscaleStatus,
 } from "@goat/tailscale";
@@ -84,11 +85,14 @@ function resolveTailscaleIpAdvertisedEndpoints(input: {
 }
 
 // The backend may run elsewhere (WSL), so ask it for its id instead of reading the state dir.
+// Bounded like the Serve probe; the HTTP client alone would wait minutes for an answer.
 const classifyServesThisBackend = (localHttpUrl: string) => (baseUrl: string) =>
   HttpClient.get(new URL(GOAT_ENVIRONMENT_PATH, localHttpUrl)).pipe(
     Effect.flatMap(HttpClientResponse.filterStatusOk),
     Effect.flatMap(HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)),
     Effect.option,
+    Effect.timeoutOption(TAILSCALE_PROBE_TIMEOUT),
+    Effect.map(Option.flatten),
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.succeed(null),
