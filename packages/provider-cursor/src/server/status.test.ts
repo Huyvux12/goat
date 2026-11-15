@@ -1,5 +1,7 @@
 import type { SDKModel } from "@cursor/sdk";
 import { describe, expect, it } from "@effect/vitest";
+import * as Fiber from "effect/Fiber";
+import { TestClock } from "effect/testing";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { CursorSettings } from "../settings.ts";
@@ -192,6 +194,33 @@ describe("checkCursorProviderStatus", () => {
           { slug: "internal/cursor-model", isCustom: true },
         ],
       });
+    }),
+  );
+
+  it.effect("allows slow SDK discovery with a configured readiness timeout", () =>
+    Effect.gen(function* () {
+      const fiber = yield* checkCursorProviderStatus(baseCursorSettings, {
+        CURSOR_API_KEY: "test-key",
+        GOAT_CURSOR_PROBE_TIMEOUT_MS: "30000",
+      }).pipe(
+        Effect.provide(
+          CursorSdkCatalog.layerTest(() =>
+            Effect.sleep("20 seconds").pipe(
+              Effect.as({
+                user: {
+                  apiKeyName: "test",
+                  userEmail: "cursor@example.com",
+                  createdAt: "2026-01-01",
+                },
+                models: [sdkParameterizedModel],
+              }),
+            ),
+          ),
+        ),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("20 seconds");
+      expect((yield* Fiber.join(fiber)).status).toBe("ready");
     }),
   );
 
