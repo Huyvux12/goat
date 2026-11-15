@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 import { MAC_COMMAND_USAGE_DESCRIPTIONS } from "./lib/mac-command-usage-descriptions.ts";
+import {
+  LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+  LINUX_CAPTURE_EXTRA_RESOURCES,
+} from "./desktop-artifact-linux.ts";
 import { makeMacPackagedPayloadValidator } from "./desktop-artifact-mac.ts";
 import { countWindowsPayloadFiles } from "./desktop-artifact-windows-payload.ts";
 
@@ -1131,6 +1135,7 @@ export const WSL_RUNTIME_EXTRA_RESOURCES = [
   WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE,
   WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE,
 ] as const;
+export { LINUX_BROWSER_SECRET_EXTRA_RESOURCES, LINUX_CAPTURE_EXTRA_RESOURCES };
 export const DESKTOP_EXTRA_RESOURCES = [
   { from: "apps/desktop/prod-resources/screen-code/quickjs.wasm", to: "screen-code/quickjs.wasm" },
   // electron-builder treats apps/desktop/resources as buildResources and leaves it out of the app.
@@ -1149,24 +1154,6 @@ export const DESKTOP_EXTRA_RESOURCES = [
     from: "apps/desktop/prod-resources/LICENSE-T3CODE.txt",
     to: "LICENSE-T3CODE.txt",
   },
-] as const;
-export const LINUX_CAPTURE_EXTRA_RESOURCES = [
-  {
-    from: "apps/desktop/prod-resources/hyprland-capture",
-    to: "hyprland-capture",
-  },
-  {
-    from: "apps/desktop/prod-resources/kde-capture",
-    to: "kde-capture",
-  },
-  {
-    from: "apps/desktop/gnome-extension",
-    to: "gnome-extension",
-    filter: gnomeCaptureBundle.files,
-  },
-] as const;
-export const LINUX_BROWSER_SECRET_EXTRA_RESOURCES = [
-  { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
 ] as const;
 
 export interface MacPasskeySigningConfiguration {
