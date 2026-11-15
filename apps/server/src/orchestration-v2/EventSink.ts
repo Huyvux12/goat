@@ -49,36 +49,12 @@ const decodeProviderThreadPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2ProviderThreadJson),
 );
 
-export class EventSinkWriteError extends Schema.TaggedError<EventSinkWriteError>()(
-  "EventSinkWriteError",
-  {
-    eventCount: Schema.Number,
-    commandId: Schema.optional(CommandId),
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message(): string {
-    return `Failed to write ${this.eventCount} orchestration V2 event(s).`;
-  }
-}
-
-export class EventSinkStreamError extends Schema.TaggedError<EventSinkStreamError>()(
-  "EventSinkStreamError",
-  {
-    threadId: Schema.optional(ThreadId),
-    afterSequence: Schema.optional(Schema.Number),
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message(): string {
-    return this.threadId === undefined
-      ? "Failed to stream orchestration V2 events."
-      : `Failed to stream orchestration V2 events for thread ${this.threadId}.`;
-  }
-}
-
-export const EventSinkV2Error = Schema.Union([EventSinkWriteError, EventSinkStreamError]);
-export type EventSinkV2Error = typeof EventSinkV2Error.Type;
+import {
+  EventSinkWriteError,
+  EventSinkStreamError,
+  type EventSinkV2Error,
+} from "./EventSinkErrors.ts";
+export { EventSinkWriteError, EventSinkStreamError, EventSinkV2Error } from "./EventSinkErrors.ts";
 
 export interface EventSinkV2Shape extends EventSinkBatch.Shape {
   readonly write: (input: {
