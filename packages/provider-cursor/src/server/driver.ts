@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { readCursorUsageLimits } from "./usageLimits.ts";
+import { cursorAccountIdentity } from "./accountIdentity.ts";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
 import { makeCursorTextGeneration } from "./textGeneration.ts";
@@ -228,7 +229,15 @@ export const CursorDriver: ProviderDriver<
         ),
       );
 
-    let catalogModels: ReadonlyArray<ServerProviderModel> = [];
+    // The last check's catalog fills in model defaults only for the account whose key loaded it.
+    let catalog: {
+      readonly account: string | undefined;
+      readonly models: ReadonlyArray<ServerProviderModel>;
+    } = { account: undefined, models: [] };
+    const catalogModelsFor = (apiKey: string | undefined) =>
+      apiKey !== undefined && catalog.account === cursorAccountIdentity(apiKey)
+        ? catalog.models
+        : [];
     const orchestrationAdapter = yield* makeCursorAdapterV2({
       instanceId,
       settings: effectiveConfig,
@@ -236,7 +245,7 @@ export const CursorDriver: ProviderDriver<
       resolveSessionApiKey: auth.requireSessionApiKey,
       validateSessionApiKey: auth.validateSessionApiKey,
       agentTransportRefusal: (yield* CursorSdk.CursorSdk).agentTransportRefusal,
-      getModels: () => catalogModels,
+      getModels: catalogModelsFor,
     }).pipe(
       Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
         ...sdkRunner,
@@ -279,7 +288,7 @@ export const CursorDriver: ProviderDriver<
         ...(host.environmentId === undefined ? {} : { environmentId: host.environmentId }),
       },
       currentEnvironment,
-      () => catalogModels,
+      catalogModelsFor,
     );
 
     const checkProvider = auth.readApiKey.pipe(
@@ -315,6 +324,17 @@ export const CursorDriver: ProviderDriver<
                     Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
                   ),
               ),
+              Effect.tap((provider) =>
+                Effect.sync(() => {
+                  // A failed check lists only custom models, so keep the last loaded catalog.
+                  if (provider.models.some((model) => !model.isCustom)) {
+                    catalog = {
+                      account: apiKey === undefined ? undefined : cursorAccountIdentity(apiKey),
+                      models: provider.models,
+                    };
+                  }
+                }),
+              ),
             ),
           ),
         ),
@@ -323,14 +343,6 @@ export const CursorDriver: ProviderDriver<
       Effect.provideService(Path.Path, path),
       Effect.provideService(CursorKeychain.CursorKeychain, keychain),
       Effect.flatMap(stampSnapshot),
-      Effect.tap((provider) =>
-        Effect.sync(() => {
-          // A failed check lists only custom models, so keep the last loaded catalog.
-          if (provider.models.some((model) => !model.isCustom)) {
-            catalogModels = provider.models;
-          }
-        }),
-      ),
       Effect.provide(CursorSdkCatalog.layer),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );

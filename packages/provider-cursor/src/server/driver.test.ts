@@ -797,4 +797,98 @@ it.layer(layerTest)("CursorDriver", (it) => {
       });
     }).pipe(Effect.scoped),
   );
+
+  it.effect("a session uses catalog defaults only from its own account's catalog", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-account-" });
+      const client = HttpClient.make((request) =>
+        Effect.succeed(
+          request.url.endsWith("/v1/me")
+            ? HttpClientResponse.fromWeb(
+                request,
+                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+              )
+            : HttpClientResponse.fromWeb(
+                request,
+                Response.json({
+                  items: [
+                    {
+                      id: "claude-opus-5-5",
+                      displayName: "Claude Opus 5.5",
+                      parameters: [
+                        {
+                          id: "context",
+                          displayName: "Context",
+                          values: [{ value: "300k" }, { value: "1m" }],
+                        },
+                      ],
+                      variants: [
+                        {
+                          displayName: "Claude Opus 5.5",
+                          isDefault: true,
+                          params: [{ id: "context", value: "1m" }],
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              ),
+        ),
+      );
+      const host: NodeJS.ProcessEnv = { CURSOR_API_KEY: "account-a-key" };
+      const instanceId = ProviderInstanceId.make("cursor-catalog-account");
+      const openedModels: Array<AgentOptions["model"]> = [];
+      const instance = yield* CursorDriver.create({
+        instanceId,
+        displayName: "Cursor",
+        enabled: true,
+        environment: [],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, host),
+        Effect.provideService(HttpClient.HttpClient, client),
+        Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
+          assertComplete: Effect.void,
+          open: (request) =>
+            Effect.sync(() => {
+              openedModels.push(request.options.model);
+              return {
+                agentId: "native-cursor-account-" + openedModels.length,
+                listMessages: Effect.succeed([]),
+                close: Effect.void,
+                send: () => Effect.die("no turns in this test"),
+              };
+            }),
+        }),
+      );
+      expect((yield* instance.snapshot.refresh).status).toBe("ready");
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: workspace,
+      });
+      const modelSelection = { instanceId, model: "claude-opus-5-5" };
+      const open = (name: string) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.make(name);
+          const runtime = yield* instance.orchestrationAdapter.openSession({
+            threadId,
+            providerSessionId: ProviderSessionId.make(name),
+            modelSelection,
+            runtimePolicy,
+          });
+          yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+        });
+      yield* open("account-a");
+      // Another account's key, before any check has loaded its catalog.
+      host.CURSOR_API_KEY = "account-b-key";
+      yield* open("account-b");
+      expect(openedModels[0]).toEqual({
+        id: "claude-opus-5-5",
+        params: [{ id: "context", value: "1m" }],
+      });
+      expect(openedModels[1]).toEqual({ id: "claude-opus-5-5" });
+    }).pipe(Effect.scoped),
+  );
 });

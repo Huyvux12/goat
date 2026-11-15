@@ -381,7 +381,8 @@ export interface CursorAdapterV2Options extends SessionEnv.SessionAuth {
   readonly instanceId: ProviderInstanceId;
   readonly settings: CursorSettings;
   readonly environment: SessionEnv.Source;
-  readonly getModels?: () => ReadonlyArray<ServerProviderModel>;
+  /** The model catalog the account with this key was last checked with, if any. */
+  readonly getModels?: (apiKey: string | undefined) => ReadonlyArray<ServerProviderModel>;
 }
 
 export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
@@ -1733,7 +1734,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           const options = makeCursorAgentOptions({
             ...(apiKey === undefined ? {} : { apiKey }),
             modelSelection: openInput.modelSelection,
-            models: adapterOptions.getModels?.() ?? [],
+            models: adapterOptions.getModels?.(apiKey) ?? [],
             runtimePolicy: openInput.runtimePolicy,
             platform,
             threadId: openInput.threadId,
@@ -1947,7 +1948,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                 options: {
                   model: cursorSdkModelSelection(
                     turnInput.modelSelection,
-                    adapterOptions.getModels?.() ?? [],
+                    adapterOptions.getModels?.(apiKey) ?? [],
                   ),
                   mode: turnInput.runtimePolicy.interactionMode === "plan" ? "plan" : "agent",
                   mcpServers: mcpServers ?? {},
@@ -2154,7 +2155,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           providerSession: session,
           getModelContextWindow: (selection) =>
             selection.instanceId === adapterOptions.instanceId
-              ? cursorContextWindowTokens(selection, adapterOptions.getModels?.() ?? [])
+              ? cursorContextWindowTokens(selection, adapterOptions.getModels?.(apiKey) ?? [])
               : undefined,
           events: Stream.fromEffectRepeat(Queue.take(events)),
           ensureThread: Effect.fn("CursorAdapterV2.ensureThread")(
