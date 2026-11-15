@@ -9,6 +9,8 @@ export * from "./orchestrationV2Attribution.ts";
 import { OrchestrationV2GetThreadFamilyInput } from "./threadFamilyLookup.ts";
 export { OrchestrationV2GetThreadFamilyInput } from "./threadFamilyLookup.ts";
 import { OrchestrationV2RunStatus } from "./orchestrationV2RunStatus.ts";
+import { OrchestrationV2ProviderThreadNativeMetadata } from "./orchestrationV2NativeMetadata.ts";
+export * from "./orchestrationV2NativeMetadata.ts";
 import {
   kindUnionWithFallback,
   OrchestrationV2Notification,
@@ -1050,19 +1052,6 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
   }),
 );
 export type OrchestrationV2PendingBackgroundTask = typeof OrchestrationV2PendingBackgroundTask.Type;
-
-export const OrchestrationV2ProviderThreadNativeMetadata = Schema.Struct({
-  modelSelection: Schema.optional(ModelSelection),
-  title: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  updatedAt: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  itemIdentityVersion: Schema.optional(Schema.Literal(2)),
-  forkHeadMessageId: Schema.optional(TrimmedNonEmptyString),
-  claudeAttachmentBudget: Schema.optional(
-    Schema.Struct({ bytesUsed: NonNegativeInt, pagesUsed: NonNegativeInt }),
-  ),
-});
-export type OrchestrationV2ProviderThreadNativeMetadata =
-  typeof OrchestrationV2ProviderThreadNativeMetadata.Type;
 
 export const OrchestrationV2ProviderGoalStatus = Schema.Literals([
   "active",
@@ -2136,6 +2125,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestRunStopRequested: Schema.optional(Schema.Boolean),
   latestRunStartHeld: Schema.optional(Schema.Boolean),
   latestRunCompletionNotification: Schema.optional(Schema.String),
+  /** The latest run answers a background-work progress wake, like a Monitor line, not a terminal one. Absent from older servers. */
+  latestRunBackgroundWake: Schema.optional(Schema.Boolean),
   activeRunId: Schema.NullOr(RunId),
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   activityRunStatus: Schema.optional(
