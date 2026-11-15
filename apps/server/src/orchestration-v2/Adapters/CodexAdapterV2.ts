@@ -1111,6 +1111,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           })
           .pipe(Effect.flatMap(withCodexRequestDeadlines));
         const restoredCompactions = new Set<string>();
+        // Native thread id to the compaction whose context goes back once its turn completes.
+        const compactionsAwaitingRestore = new Map<string, string>();
         const restorePermit = yield* Semaphore.make(1);
         const credentialsByThread = new Map<string, string>();
         /** Threads Codex held before this session resumed them, such as across a server restart. */
@@ -1158,8 +1160,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         });
         const { byThread: memoryByThread, clear: clearMemoryDelivery } = memoryDelivery;
         const retainMemory = memoryDelivery.retain;
-        // Codex drops client developer messages during compaction but only
-        // resends additionalContext when it changes.
+        // Codex drops client developer messages during compaction but only resends additionalContext
+        // when it changes. Restore after turn/completed: items injected mid-turn make the turn sample again.
         const restoreAdditionalContext = Effect.fn("CodexAdapterV2.restoreAdditionalContext")(
           function* (threadId: string, compactionId: string) {
             const cachedContext = (yield* Ref.get(additionalContextByThread)).get(threadId);
@@ -4732,11 +4734,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const emitCompletedItem = (payload: CodexSchema.V2ItemCompletedNotification) =>
           Effect.gen(function* () {
             if (payload.item.type === "contextCompaction")
-              // The notification callback runs on the input reader. Let it read
-              // the injection response while the session-scoped request waits.
-              yield* restoreAdditionalContext(payload.threadId, payload.item.id).pipe(
-                Effect.forkIn(scope, { startImmediately: true }),
-              );
+              compactionsAwaitingRestore.set(payload.threadId, payload.item.id);
             if (
               (payload.item.type === "subAgentActivity" ||
                 payload.item.type === "collabAgentToolCall") &&
@@ -6401,6 +6399,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         // The stopped-queued record clears after finalizing, so a Stop deciding meanwhile cannot keep it.
         yield* survivorHooks.handleNotification("turn/completed", (payload) =>
           Effect.gen(function* () {
+            const compactionId = compactionsAwaitingRestore.get(payload.threadId);
+            if (compactionId !== undefined) {
+              compactionsAwaitingRestore.delete(payload.threadId);
+              // The notification callback runs on the input reader. Let it read
+              // the injection response while the session-scoped request waits.
+              yield* restoreAdditionalContext(payload.threadId, compactionId).pipe(
+                Effect.forkIn(scope, { startImmediately: true }),
+              );
+            }
             turnStartGuard.turnCompleted(
               payload.turn.id,
               Survivor.mapCodexTurnStatus(payload.turn.status),
@@ -7374,6 +7381,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 return next;
               });
               sessionApprovals.delete(nativeThreadId);
+              compactionsAwaitingRestore.delete(nativeThreadId);
               yield* threadClosings.begin(nativeThreadId);
               yield* client
                 .request("thread/unsubscribe", { threadId: nativeThreadId })

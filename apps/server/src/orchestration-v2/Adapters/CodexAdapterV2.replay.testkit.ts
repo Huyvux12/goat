@@ -68,6 +68,7 @@ export const makeCodexReplayHarness = (
   readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
   beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
   observeSleeps = false,
+  onNotification: (method: string) => Effect.Effect<void> = () => Effect.void,
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -145,7 +146,8 @@ export const makeCodexReplayHarness = (
                     ...client,
                     handleServerNotification: (method, handler) =>
                       client.handleServerNotification(method, (payload) =>
-                        handler(payload).pipe(
+                        onNotification(method).pipe(
+                          Effect.andThen(handler(payload)),
                           Effect.andThen(
                             Effect.sync(() => {
                               if (

@@ -2228,15 +2228,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 },
               },
               {
-                type: "expect_outbound",
-                frame: {
-                  id: 4,
-                  method: "thread/inject_items",
-                  params: { threadId: nativeThreadId, items },
-                },
-              },
-              { type: "emit_inbound", frame: { id: 4, result: {} } },
-              {
                 type: "emit_inbound",
                 frame: {
                   method: "turn/completed",
@@ -2246,6 +2237,15 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                   },
                 },
               },
+              {
+                type: "expect_outbound",
+                frame: {
+                  id: 4,
+                  method: "thread/inject_items",
+                  params: { threadId: nativeThreadId, items },
+                },
+              },
+              { type: "emit_inbound", frame: { id: 4, result: {} } },
             ],
           });
           yield* (yield* McpProviderSessions.McpProviderSessions).set({
@@ -2262,7 +2262,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           const release = yield* Deferred.make<void>();
           let execution: { threadId: M.ThreadId; runId: M.RunId } | undefined;
           let revalidations = 0;
-          const harness = yield* makeCodexReplayHarness(transcript).pipe(
+          const injected = yield* Deferred.make<void>();
+          const harness = yield* makeCodexReplayHarness(transcript, undefined, (method) =>
+            method === "thread/inject_items" ? Deferred.succeed(injected, undefined) : Effect.void,
+          ).pipe(
             Effect.provideService(MemorySnapshot.MemorySnapshot, {
               forThread: () => Effect.die("restoration must not reselect"),
               invalidate: () => Effect.void,
@@ -2304,6 +2307,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           assert.deepEqual(execution, { threadId: input.threadId, runId: input.runId });
           yield* Deferred.succeed(release, undefined);
           yield* harness.firstTerminal;
+          yield* Deferred.await(injected);
           assert.equal(revalidations, 1);
           const memoryItem = items.find((item) =>
             item.content[0]?.text.includes("external_goat_memory"),
@@ -2562,6 +2566,17 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               },
             },
             {
+              type: "emit_inbound",
+              label: "done",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+            {
               type: "expect_outbound",
               label: "restore context",
               frame: {
@@ -2578,17 +2593,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               },
             },
             { type: "emit_inbound", label: "restored", frame: { id: 4, result: {} } },
-            {
-              type: "emit_inbound",
-              label: "done",
-              frame: {
-                method: "turn/completed",
-                params: {
-                  threadId: nativeThreadId,
-                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                },
-              },
-            },
           ],
         });
         yield* (yield* McpProviderSessions.McpProviderSessions).set({
@@ -2600,7 +2604,27 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           authorizationHeader: "Bearer test",
           browserToolsAvailable: true,
         });
-        const harness = yield* makeCodexReplayHarness(transcript);
+        // Codex queues items injected mid-turn as pending input and samples again.
+        const wireOrder: Array<string> = [];
+        const restoreRequested = yield* Deferred.make<void>();
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          undefined,
+          (method) =>
+            method === "thread/inject_items"
+              ? Effect.sync(() => wireOrder.push(method)).pipe(
+                  Effect.andThen(Deferred.succeed(restoreRequested, undefined)),
+                )
+              : Effect.void,
+          undefined,
+          undefined,
+          undefined,
+          (method) =>
+            Effect.sync(() => {
+              if (method === "item/completed" || method === "turn/completed")
+                wireOrder.push(method);
+            }),
+        );
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
             threadId: harness.threadId,
@@ -2611,7 +2635,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           }),
         );
         yield* harness.firstTerminal;
+        yield* Deferred.await(restoreRequested);
         assert.equal(harness.terminalEvents()[0]?.status, "completed");
+        assert.deepEqual(
+          wireOrder,
+          ["item/completed", "turn/completed", "thread/inject_items"],
+          "restored GOAT context while the compacting native turn was still running",
+        );
       }).pipe(Effect.provide(layerAdapterTest)),
     ),
   );
@@ -7491,23 +7521,20 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 ? [
                     {
                       type: "expect_outbound" as const,
+                      label: "turn/interrupt",
                       frame: {
                         id: 4,
-                        method: "thread/inject_items",
-                        params: { threadId: nativeThreadId, items: restoredItems },
+                        method: "turn/interrupt",
+                        params: { threadId: nativeThreadId, turnId: nativeTurnId },
                       },
                     },
                     {
                       type: "emit_inbound" as const,
-                      frame: { id: 4, result: {} },
+                      label: "turn/interrupt/failed",
+                      frame: { id: 4, error: { code: -32_000, message: "Interrupt failed" } },
                     },
-                  ]
-                : []),
-              ...(outcome === "Stop"
-                ? [
                     {
                       type: "expect_outbound" as const,
-                      label: "turn/interrupt",
                       frame: {
                         id: 5,
                         method: "turn/interrupt",
@@ -7516,20 +7543,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     },
                     {
                       type: "emit_inbound" as const,
-                      label: "turn/interrupt/failed",
-                      frame: { id: 5, error: { code: -32_000, message: "Interrupt failed" } },
-                    },
-                    {
-                      type: "expect_outbound" as const,
-                      frame: {
-                        id: 6,
-                        method: "turn/interrupt",
-                        params: { threadId: nativeThreadId, turnId: nativeTurnId },
-                      },
-                    },
-                    {
-                      type: "emit_inbound" as const,
-                      frame: { id: 6, result: {} },
+                      frame: { id: 5, result: {} },
                     },
                     {
                       type: "emit_inbound" as const,
@@ -7540,6 +7554,18 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                           turn: makeCodexReplayTurn({ id: nativeTurnId, status: "interrupted" }),
                         },
                       },
+                    },
+                    {
+                      type: "expect_outbound" as const,
+                      frame: {
+                        id: 6,
+                        method: "thread/inject_items",
+                        params: { threadId: nativeThreadId, items: restoredItems },
+                      },
+                    },
+                    {
+                      type: "emit_inbound" as const,
+                      frame: { id: 6, result: {} },
                     },
                   ]
                 : [
@@ -7588,7 +7614,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           );
           if (outcome === "Stop") {
             const providerTurnId = yield* Deferred.await(compactionStarted);
-            yield* Deferred.await(injectionRequested);
             const interrupt = yield* harness.runtime
               .interruptTurn({ providerThread: harness.providerThread, providerTurnId })
               .pipe(Effect.exit);
@@ -7599,6 +7624,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             });
           }
           yield* harness.firstTerminal;
+          if (outcome === "Stop") yield* Deferred.await(injectionRequested);
           const items = harness.events.flatMap((event) =>
             event.type === "turn_item.updated" && event.turnItem.type === "compaction"
               ? [event.turnItem]
