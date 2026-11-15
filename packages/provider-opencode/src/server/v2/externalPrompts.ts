@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import type { ActiveTurn, ThreadState } from "./adapterState.ts";
 import { isOwnPrompt } from "./promptIds.ts";
 
-type ItemBase = Omit<
+export type ItemBase = Omit<
   Extract<OrchestrationV2TurnItem, { type: "user_message" }>,
   "type" | "createdBy" | "creationSource" | "messageId" | "inputIntent" | "text" | "attachments"
 >;
