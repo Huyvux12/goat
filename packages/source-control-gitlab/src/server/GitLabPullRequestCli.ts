@@ -34,6 +34,7 @@ import {
   gitLabReviewPositionLines,
 } from "./gitLabInput.ts";
 import { gitLabActionSummary } from "./gitLabActionSummary.ts";
+import { makeRevertMergeRequest } from "./gitLabRevert.ts";
 import {
   gitLabLineRange,
   gitLabPatchCovering,
@@ -43,6 +44,7 @@ import { actionArgs } from "./gitLabActionArgs.ts";
 import { decodeMergeMessagesJson, MERGE_MESSAGES_GRAPHQL_QUERY } from "./gitLabMergeMessages.ts";
 import {
   GitLabDiffRefsUnavailableError,
+  GitLabRevertUnavailableError,
   GitLabPinnedRebaseError,
   GitLabPinnedAutoMergeError,
 } from "./gitLabPullRequestActionErrors.ts";
@@ -121,6 +123,7 @@ export type GitLabPullRequestCliError =
   | GitLabDiffCommitParentUnavailableError
   | GitLabDiffFileContentsUnavailableError
   | GitLabDiffRefsUnavailableError
+  | GitLabRevertUnavailableError
   | GitLabViewerUnavailableError
   | import("./gitLabPullRequestErrors.ts").GitLabMutationRefusedError;
 
@@ -748,6 +751,8 @@ export const make = Effect.gen(function* () {
             });
       }),
     );
+
+  const revertMergeRequest = makeRevertMergeRequest(api);
 
   const getDiffRefs = (input: {
     readonly cwd: string;
@@ -1579,6 +1584,7 @@ export const make = Effect.gen(function* () {
           // The other actions run `glab mr`, which prints prose rather than the merge request.
           return gitLabActionSummary(result.stdout);
         }
+        if (input.action === "revert") return yield* revertMergeRequest(input);
         const executeMr = (subcommand: string, ...flags: ReadonlyArray<string>) =>
           gitlab.execute({
             cwd: input.cwd,
