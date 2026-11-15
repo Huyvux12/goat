@@ -26,8 +26,6 @@ import * as NodeOS from "node:os";
 
 import {
   AgentSessionScanError,
-  ClaudeSettings,
-  CodexSettings,
   DEFAULT_AGENT_SESSION_WINDOW_DAYS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -45,7 +43,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
@@ -61,16 +58,24 @@ import { mergeProviderInstanceEnvironment } from "@goat/provider-core/server/ins
 import { expandHomePath } from "@goat/provider-core/server/pathExpansion";
 import { resolvePiSessionsDir } from "@goat/provider-pi/server/usage";
 import * as ServerSettings from "../serverSettings.ts";
-import {
-  createTranscriptJsonReader,
-  createTranscriptJsonSelector,
-  TranscriptJsonLimitError,
-} from "./AgentSessionJson.ts";
+import { createTranscriptJsonReader, TranscriptJsonLimitError } from "./AgentSessionJson.ts";
 import {
   normalizeForWorktreeMatch,
   isGoatManagedWorktree,
   extractCwd,
 } from "./AgentSessionTranscriptCwd.ts";
+import {
+  TranscriptContentBlock,
+  TranscriptMessage,
+  decodeClaudeSettings,
+  decodeCodexSettings,
+  decodeTranscriptRecord,
+  decodeTranscriptValue,
+  decodePiEntryLinks,
+  selectTranscriptPath,
+  decodeCodexTurnMetadata,
+  type DecodedTranscriptRecord,
+} from "./AgentSessionTranscriptSchema.ts";
 
 const TRANSCRIPT_PREFIX_BYTES = 32 * 1024;
 const METADATA_READ_BYTES = 8 * 1024;
@@ -91,67 +96,6 @@ const MAX_IMPORT_HISTORY_BYTES = 32 * 1024 * 1024;
 const MAX_IMPORT_BYTES = 4 * 1024 * 1024 * 1024;
 const MAX_IMPORT_TRANSCRIPTS = 100;
 const MAX_IMPORT_RECORDS = 100_000;
-
-const TranscriptContentBlock = Schema.Struct({
-  type: Schema.optional(Schema.String),
-  text: Schema.optional(Schema.String),
-});
-
-const TranscriptMessage = Schema.Struct({
-  role: Schema.optional(Schema.String),
-  content: Schema.optional(Schema.Union([Schema.String, Schema.Array(TranscriptContentBlock)])),
-  model: Schema.optional(Schema.String),
-});
-
-const CodexTurnMetadata = Schema.Struct({
-  turn_id: Schema.optional(Schema.Union([Schema.String, Schema.Null])),
-});
-
-const TranscriptRecord = Schema.Struct({
-  type: Schema.optional(Schema.String),
-  // Pi entries form a tree through id/parentId; session_info entries carry its name.
-  id: Schema.optional(Schema.String),
-  parentId: Schema.optional(Schema.NullOr(Schema.String)),
-  name: Schema.optional(Schema.String),
-  timestamp: Schema.optional(Schema.String),
-  cwd: Schema.optional(Schema.String),
-  sessionId: Schema.optional(Schema.String),
-  aiTitle: Schema.optional(Schema.String),
-  customTitle: Schema.optional(Schema.String),
-  isSidechain: Schema.optional(Schema.Boolean),
-  isMeta: Schema.optional(Schema.Boolean),
-  isCompactSummary: Schema.optional(Schema.Boolean),
-  message: Schema.optional(TranscriptMessage),
-  payload: Schema.optional(
-    Schema.Struct({
-      id: Schema.optional(Schema.String),
-      session_id: Schema.optional(Schema.String),
-      type: Schema.optional(Schema.String),
-      role: Schema.optional(Schema.String),
-      message: Schema.optional(Schema.String),
-      model: Schema.optional(Schema.String),
-      cwd: Schema.optional(Schema.String),
-      history_base: Schema.optional(Schema.Unknown),
-      content: Schema.optional(Schema.Array(TranscriptContentBlock)),
-      internal_chat_message_metadata_passthrough: Schema.optional(Schema.Unknown),
-    }),
-  ),
-});
-
-const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
-const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
-const decodeTranscriptRecord = Schema.decodeUnknownOption(Schema.fromJsonString(TranscriptRecord));
-const decodeTranscriptValue = Schema.decodeUnknownOption(TranscriptRecord);
-const decodePiEntryLinks = Schema.decodeUnknownOption(
-  Schema.Struct({
-    type: TranscriptRecord.fields.type,
-    id: TranscriptRecord.fields.id,
-    parentId: TranscriptRecord.fields.parentId,
-  }),
-);
-const selectTranscriptPath = createTranscriptJsonSelector(TranscriptRecord);
-const decodeCodexTurnMetadata = Schema.decodeUnknownOption(CodexTurnMetadata);
-type DecodedTranscriptRecord = typeof TranscriptRecord.Type;
 
 interface AgentSessionTranscriptMetadata {
   readonly source: AgentSessionSource;
