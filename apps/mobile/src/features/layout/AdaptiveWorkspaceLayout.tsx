@@ -94,7 +94,7 @@ import {
   workspaceSelectionCheck,
 } from "../workspace/workspace-selection-store";
 import { workspaceTabNavigationState } from "../workspace/workspace-tab-navigation";
-import type { WorkspaceTab } from "../workspace/workspace-tabs-state";
+import { workspaceTabOf, type WorkspaceTab } from "../workspace/workspace-tabs-state";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
 import { useAndroidContentStyles } from "./android-content-styles";
 
@@ -461,10 +461,7 @@ function AdaptiveWorkspaceLayoutContent(
       if (Platform.OS === "android") Keyboard.dismiss();
       setFileInspectorPreferredVisible(false);
       if (layout.primarySidebarOverlaysContent) setPrimarySidebarVisible(false);
-      workspace?.dispatch({
-        type: "select",
-        tab: detail.name === "PullRequest" ? "pullRequests" : "threads",
-      });
+      workspace?.dispatch({ type: "select", tab: workspaceTabOf(detail.name) });
       startOpeningDetail(detail);
       navigation.dispatch(selectWorkspaceDetail(detail, sheet));
     });
