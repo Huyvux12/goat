@@ -12,9 +12,12 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
@@ -49,6 +52,7 @@ interface ScannerTestInput {
     readonly cwd: string;
     readonly sources: ReadonlyArray<AgentSessionImportSource>;
   };
+  readonly processRunner?: Layer.Layer<ProcessRunner.ProcessRunner>;
 }
 
 const layerRuntimeRepository = (imported: ScannerTestInput["importedTranscripts"]) =>
@@ -72,7 +76,12 @@ const layerRuntimeRepository = (imported: ScannerTestInput["importedTranscripts"
   });
 
 export const layerScannerTest = (input: ScannerTestInput) =>
-  AgentSessionScanner.layer.pipe(
+  (input.processRunner === undefined
+    ? AgentSessionScanner.layer
+    : Layer.effect(AgentSessionScanner.AgentSessionScanner, AgentSessionScanner.make).pipe(
+        Layer.provide(input.processRunner),
+      )
+  ).pipe(
     Layer.provide(
       Layer.mergeAll(
         ServerSettings.layerTest({
@@ -156,3 +165,27 @@ export const writeTranscript = Effect.fn("AgentSessionScanner.test.writeTranscri
     yield* fileSystem.utimes(input.filePath, seconds, seconds);
   },
 );
+
+/**
+ * Offers each of `filePaths` to `finished` once its `cat` child has exited. A
+ * deadline fires for every read still in flight, so a test must wait for the
+ * unblocked reads before it moves the clock.
+ */
+export const layerReportingProcessRunner = (
+  filePaths: ReadonlySet<string>,
+  finished: Queue.Queue<string>,
+) =>
+  Layer.effect(
+    ProcessRunner.ProcessRunner,
+    Effect.gen(function* () {
+      const runner = yield* ProcessRunner.ProcessRunner;
+      return ProcessRunner.ProcessRunner.of({
+        run: (input) => {
+          const filePath = input.args.at(-1) ?? "";
+          return filePaths.has(filePath)
+            ? runner.run(input).pipe(Effect.ensuring(Queue.offer(finished, filePath)))
+            : runner.run(input);
+        },
+      });
+    }),
+  ).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(NodeServices.layer));

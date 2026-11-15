@@ -19,6 +19,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -32,6 +33,7 @@ import {
   runRecentThreads,
   makeTempDir,
   writeTranscript,
+  layerReportingProcessRunner,
 } from "./AgentSessionScanner.testkit.ts";
 
 const claudeSessionLine = (cwd: string) =>
@@ -2009,6 +2011,12 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")(
           });
         }
 
+        const finishedPointerReads = yield* Queue.unbounded<string>();
+        const processRunner = layerReportingProcessRunner(
+          new Set([path.join(worktree, ".git")]),
+          finishedPointerReads,
+        );
+
         // One scanner across scans: later scans skip the files that blocked.
         yield* Effect.gen(function* () {
           const scanner = yield* AgentSessionScanner.AgentSessionScanner;
@@ -2017,22 +2025,24 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")(
             .pipe(Effect.map(({ candidates }) => candidates.map(({ path }) => path)));
           const first = yield* Effect.forkChild(scanPaths);
           // Pointer files are read first, then the commondir files they lead to.
-          for (const gatePath of [
-            path.join(pointerCheckout, ".git"),
-            path.join(worktreeGitDir, "commondir"),
-          ]) {
-            yield* Effect.scoped(
-              Effect.gen(function* () {
-                yield* awaitGateReader(gatePath);
-                yield* TestClock.adjust("2 seconds");
-              }),
-            );
-          }
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* awaitGateReader(path.join(pointerCheckout, ".git"));
+              yield* Queue.take(finishedPointerReads);
+              yield* TestClock.adjust("2 seconds");
+            }),
+          );
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* awaitGateReader(path.join(worktreeGitDir, "commondir"));
+              yield* TestClock.adjust("2 seconds");
+            }),
+          );
           expect(yield* Fiber.join(first)).toEqual([pointerCheckout]);
           for (let attempt = 2; attempt <= LIBUV_POOL_SIZE + 1; attempt++) {
             expect(yield* scanPaths, `scan ${attempt}`).toEqual([pointerCheckout]);
           }
-        }).pipe(Effect.provide(layerScannerTest({ claudeHomePath, codexHomePath })));
+        }).pipe(Effect.provide(layerScannerTest({ claudeHomePath, codexHomePath, processRunner })));
         // Hangs if the scans left libuv pool threads stuck in open().
         yield* fileSystem.readFileString(path.join(worktree, ".git"));
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
