@@ -201,6 +201,35 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
     }),
   );
 
+  it.effect("an empty update under a new profile republishes nothing from the old one", () =>
+    Effect.gen(function* () {
+      const { instance, coordinator, host, showing, publish } = yield* makeProfiles();
+      const probed = yield* showing((snapshot) => effortBySlug(snapshot) === "model-a:,model-b:");
+      yield* instance.snapshot.refresh;
+      yield* Fiber.join(probed);
+      const learned = yield* showing(
+        (snapshot) => effortBySlug(snapshot) === "model-a:effort,model-b:",
+      );
+      yield* publish("model-a");
+      yield* Fiber.join(learned);
+      host.HOME = "/profile/b";
+      // Every snapshot published until B's own options show, in order.
+      const published = yield* instance.snapshot.streamChanges.pipe(
+        Stream.map(effortBySlug),
+        Stream.takeUntil((models) => models.includes("model-b:effort")),
+        Stream.runCollect,
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      // A B session reports no models or options, then one that does.
+      yield* coordinator.publishLiveConfiguration(identity.instanceId, {
+        ...normalizeAcpRegistryLiveConfiguration([], undefined, undefined),
+        environmentKey: acpRegistryEnvironmentKey({ ...host }),
+      });
+      yield* publish("model-b");
+      expect(yield* Fiber.join(published)).toEqual(["model-a:,model-b:effort"]);
+    }),
+  );
+
   it.effect("a check keeps the current profile's configuration after a late one from another", () =>
     Effect.gen(function* () {
       const { instance, coordinator, host, showing, publish } = yield* makeProfiles();
@@ -227,13 +256,17 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
     Effect.gen(function* () {
       const reached = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
-      const firstInspection = yield* Deferred.make<void>();
+      const forkedCheckInspected = yield* Deferred.make<void>();
+      let inspections = 0;
       let armed = false;
       // An agent that is not installed starts no background probe, so only checks inspect.
       const notFound = { status: "not_found", agentId: "test-agent" } as const;
       const { instance, host, publish } = yield* makeProfiles((_settings, environment) => {
         if (!armed || environment?.HOME !== "/profile/c") {
-          return Deferred.succeed(firstInspection, undefined).pipe(Effect.as(notFound));
+          inspections++;
+          return (
+            inspections === 2 ? Deferred.succeed(forkedCheckInspected, undefined) : Effect.void
+          ).pipe(Effect.as(notFound));
         }
         armed = false;
         return Deferred.succeed(reached, undefined).pipe(
@@ -241,9 +274,10 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
           Effect.as(notFound),
         );
       });
-      // Before the test checks, only the creation-time check inspects, holding the refresh permit;
-      // a refresh started now queues behind it, so it has finished when this returns.
-      yield* Deferred.await(firstInspection);
+      // The initial snapshot inspects during create; until the test checks, the only other caller
+      // is the forked creation-time check, which holds the refresh permit, so a refresh started
+      // after its inspection runs after it.
+      yield* Deferred.await(forkedCheckInspected);
       yield* instance.snapshot.refresh;
       yield* publish("model-a");
       expect(effortBySlug(yield* instance.snapshot.refresh)).toBe("model-a:effort,model-b:");
