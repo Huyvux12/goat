@@ -54,6 +54,7 @@ function QuestionText(props: {
         Platform.OS === "android" ? undefined : props.setDirection === "rtl" ? "right" : "left"
       }
       onLinkPress={(href) => void openLink(href)}
+      preserveSoftBreaks
     />
   );
 }
