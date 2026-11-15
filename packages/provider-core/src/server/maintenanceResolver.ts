@@ -37,6 +37,7 @@ import {
   isBunGlobalCommandPath,
   isChocolateyClaudeCommandPath,
   isMiseCommandPath,
+  isNixStoreCommandPath,
   isPnpmGlobalCommandPath,
   isVitePlusGlobalCommandPath,
   isWinGetClaudeCommandPath,
@@ -49,6 +50,7 @@ import * as ProviderLatestVersions from "./ProviderLatestVersions.ts";
 import { readCommandLookupEnv } from "./commandLookupEnv.ts";
 
 export {
+  isNixStoreCommandPath,
   normalizeCommandPath,
   npmGlobalPrefixFromCommandPath,
   parseChocolateyLatestVersion,
@@ -389,6 +391,10 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
         Effect.provideContext(services),
       ),
     });
+  }
+
+  if (commandPaths.some(isNixStoreCommandPath)) {
+    return manual;
   }
 
   const macPortsName = yield* resolveMacPortsOwner(context);
