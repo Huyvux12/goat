@@ -3135,6 +3135,44 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           })
         : null;
 
+    const detachSessionIds = new Set(
+      command.type === "thread.archive" || command.type === "thread.settle"
+        ? (providerContext?.providerSessions ?? []).map((session) => session.id)
+        : command.type === "thread.metadata.update" &&
+            command.worktreePath !== undefined &&
+            command.worktreePath !== thread.worktreePath
+          ? (providerContext?.providerSessions ?? []).map((session) => session.id)
+          : command.type === "thread.runtime-mode.set"
+            ? (providerContext?.providerSessions ?? [])
+                .filter(
+                  (session) => !session.capabilities.sessions.supportsRuntimeModeSwitchInSession,
+                )
+                .map((session) => session.id)
+            : (providerSwitchPlan?.releaseProviderSessionIds ?? []),
+    );
+    const liveSessions = (providerContext?.providerSessions ?? []).filter(
+      (session) =>
+        detachSessionIds.has(session.id) &&
+        session.status !== "stopped" &&
+        session.status !== "error",
+    );
+    if (
+      command.type !== "thread.archive" &&
+      command.type !== "thread.settle" &&
+      providerContext !== null
+    ) {
+      for (const session of liveSessions) {
+        if (yield* sessionHasBackgroundWork(session, providerContext.providerThreads)) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause:
+              "The current session is still running background agents or commands, and this change would end them. Wait for them to finish, or press Stop, then try again.",
+          });
+        }
+      }
+    }
+
     const now = yield* DateTime.now;
     if (command.type === "thread.metadata.update" && command.limitRecovery != null) {
       const projection = yield* loadProjectionForCommand(
@@ -3860,30 +3898,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
 
-    // Archive and settle stop idle background work; serialized commands prevent starts racing detach.
-    // Settlement rejects active or blocked runs.
-    const detachSessionIds = new Set(
-      command.type === "thread.archive" || command.type === "thread.settle"
-        ? (providerContext?.providerSessions ?? []).map((session) => session.id)
-        : command.type === "thread.metadata.update" &&
-            command.worktreePath !== undefined &&
-            command.worktreePath !== thread.worktreePath
-          ? (providerContext?.providerSessions ?? []).map((session) => session.id)
-          : command.type === "thread.runtime-mode.set"
-            ? (providerContext?.providerSessions ?? [])
-                .filter(
-                  (session) => !session.capabilities.sessions.supportsRuntimeModeSwitchInSession,
-                )
-                .map((session) => session.id)
-            : (providerSwitchPlan?.releaseProviderSessionIds ?? []),
-    );
-    if (detachSessionIds.size > 0) {
-      const liveSessions = (providerContext?.providerSessions ?? []).filter(
-        (session) =>
-          detachSessionIds.has(session.id) &&
-          session.status !== "stopped" &&
-          session.status !== "error",
-      );
+    if (liveSessions.length > 0) {
       yield* Effect.forEach(
         liveSessions,
         (session) =>
