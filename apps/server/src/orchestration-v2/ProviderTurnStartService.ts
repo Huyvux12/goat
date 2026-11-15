@@ -1,4 +1,5 @@
 import { makeMemoryRefreshFactory } from "./goat/MemoryRefreshFactory.ts";
+import { makeNativeForkRecovery } from "./goat/NativeForkRecovery.ts";
 import { ProviderTurnStartError } from "./ProviderTurnStartTypes.ts";
 import type { ProviderTurnStartServiceV2Shape } from "./ProviderTurnStartTypes.ts";
 import * as Context from "effect/Context";
@@ -112,6 +113,7 @@ export const layer: Layer.Layer<
     const agentScope = yield* AgentScope;
     const eventSink = yield* EventSink.EventSinkV2;
     const prepareHandoffRecovery = yield* makeProviderTurnHandoffRecovery;
+    const recoverNativeFork = yield* makeNativeForkRecovery;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const globalSkillsDir = (yield* ServerConfig.ServerConfig).globalSkillsDir;
@@ -724,6 +726,7 @@ export const layer: Layer.Layer<
       });
       let effectiveHandoffs = cloud ? [] : handoffs;
       let resumeFellBack = false;
+      let forkFellBack = false;
       const userText = yield* providerTextWithSkills(Option.some(serverSettings), {
         message,
         driver: session.driver,
@@ -797,7 +800,7 @@ export const layer: Layer.Layer<
               cause: `Native fork transfer ${nativeForkTransfer.id} has no source provider execution.`,
             });
           }
-          return yield* loadFromProvider(
+          const forked = yield* Effect.result(
             session.forkThread({
               sourceProviderThread,
               sourceProviderTurns: nativeForkTurns(sourceProjection),
@@ -809,6 +812,43 @@ export const layer: Layer.Layer<
                 : { providerTurnId: sourceProviderTurn.id }),
             }),
           );
+          if (forked._tag === "Success") return forked.success;
+          if (input.willRetry === true) return yield* forked.failure;
+          if (!(yield* isCurrentAttemptInStatus(expectedStartStatus))) return undefined;
+          const fresh = yield* loadFromProvider(
+            session.ensureThread({
+              threadId: projection.thread.id,
+              title: projection.thread.title,
+              modelSelection: run.modelSelection,
+              runtimePolicy: resolvedRuntimePolicy,
+              providerSessionId,
+              existingProviderThread: {
+                ...providerThread,
+                nativeThreadRef: null,
+                forkedFrom: null,
+              },
+              forceNewNativeThread: true,
+            }),
+          );
+          if (fresh === undefined || !(yield* isCurrentAttemptInStatus(expectedStartStatus)))
+            return undefined;
+          const handoff = yield* recoverNativeFork({
+            projection,
+            source: sourceProjection,
+            sourceRun,
+            sourceProviderThread,
+            providerThread,
+            freshThread: fresh,
+            attemptId: attempt.id,
+            run,
+            rootNode,
+            transfer: nativeForkTransfer,
+            failure: forked.failure,
+          });
+          if (handoff === undefined) return undefined;
+          effectiveHandoffs = withRecoveryHandoff(handoff, effectiveHandoffs);
+          forkFellBack = true;
+          return fresh;
         }
         if (providerThread.nativeThreadRef === null) {
           // Remote cloud creation starts only after the durable intent commit.
@@ -1096,7 +1136,7 @@ export const layer: Layer.Layer<
         firstRunOrdinal: providerThread.firstRunOrdinal ?? run.ordinal,
         lastRunOrdinal: run.ordinal,
         handoffIds: providerThread.handoffIds,
-        forkedFrom: providerThread.forkedFrom,
+        forkedFrom: forkFellBack ? null : providerThread.forkedFrom,
         status: "active",
         createdAt: providerThread.createdAt,
         updatedAt: now,
@@ -1141,7 +1181,9 @@ export const layer: Layer.Layer<
           occurredAt: now,
           payload: runningProviderThread,
         },
-        ...(nativeForkTransfer === undefined || runningProviderThread.nativeThreadRef === null
+        ...(nativeForkTransfer === undefined ||
+        forkFellBack ||
+        runningProviderThread.nativeThreadRef === null
           ? []
           : [
               {
