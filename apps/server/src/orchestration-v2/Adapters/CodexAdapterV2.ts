@@ -214,6 +214,7 @@ import { codexThreadMcpEnvironment, makeCodexConfiguredBrowser } from "./CodexTh
 import {
   type CodexTurnStartParamsWithCollaborationMode,
   buildCodexTurnStartParams,
+  codexCyberAccess,
   isProviderAdapterRuntimeRequestResponseError,
 } from "./CodexTurnStartParams.ts";
 export { buildCodexTurnStartParams } from "./CodexTurnStartParams.ts";
@@ -6752,6 +6753,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               computerUseDeferred,
               reloadedAfterRestart: restartNotices.has(threadId),
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
+              cyberAccess: codexCyberAccess(
+                adapterOptions.offeredModels === undefined
+                  ? []
+                  : yield* adapterOptions.offeredModels,
+                turnInput.modelSelection.model,
+              ),
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
             });
             yield* Ref.update(additionalContextByThread, (current) => {

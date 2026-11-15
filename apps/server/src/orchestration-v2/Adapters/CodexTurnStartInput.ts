@@ -27,4 +27,6 @@ export interface CodexTurnStartInput {
   readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
   /** The user's `model_reasoning_summary` from the Codex config, when set. */
   readonly configuredReasoningSummary?: CodexSchema.V2TurnStartParams__ReasoningSummary;
+  /** Set only for a model that offers Cyber Access; custom models never do. */
+  readonly cyberAccess?: { readonly defaultProgram: string | undefined } | undefined;
 }

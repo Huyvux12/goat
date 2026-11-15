@@ -1,4 +1,4 @@
-import type { RuntimeMode } from "@goat/contracts";
+import type { RuntimeMode, ServerProviderModel } from "@goat/contracts";
 import * as MemoryContext from "@goat/provider-core/server/memoryContext";
 import * as ProviderAdapter from "@goat/provider-core/server/ProviderAdapter";
 import { getModelSelectionStringOptionValue } from "@goat/shared/model";
@@ -31,6 +31,7 @@ const CodexTurnStartParamsWithCollaborationMode = CodexSchema.V2TurnStartParams.
     additionalContext: Schema.optionalKey(
       Schema.Record(Schema.String, CodexSchema.V2TurnStartParams__AdditionalContextEntry),
     ),
+    cyberAccessProgram: Schema.optionalKey(CodexSchema.V2TurnStartParams__CyberAccessProgram),
   }),
 );
 type CodexTurnStartParamsWithCollaborationMode =
@@ -83,6 +84,18 @@ function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
   }
 }
 
+const isCodexCyberAccessProgram = Schema.is(CodexSchema.V2TurnStartParams__CyberAccessProgram);
+
+function codexCyberAccess(
+  models: ReadonlyArray<ServerProviderModel>,
+  model: string,
+): { readonly defaultProgram: string | undefined } | undefined {
+  const descriptor = models
+    .find((candidate) => candidate.slug === model)
+    ?.capabilities?.optionDescriptors?.find((candidate) => candidate.id === "cyberAccessProgram");
+  return descriptor?.type === "select" ? { defaultProgram: descriptor.currentValue } : undefined;
+}
+
 export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTurnStartParams")(
   function* (input: CodexTurnStartInput) {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -103,6 +116,14 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       input.omitServiceTier === true
         ? undefined
         : getCodexServiceTierOptionValue(input.modelSelection);
+    // A chosen program goes as is, even one the model lacks, so Codex rejects it visibly.
+    const cyberAccessProgram =
+      input.cyberAccess === undefined
+        ? undefined
+        : [
+            getModelSelectionStringOptionValue(input.modelSelection, "cyberAccessProgram"),
+            input.cyberAccess.defaultProgram,
+          ].find(isCodexCyberAccessProgram);
     // MCP-written app context must be quoted user input, not developer instructions.
     const appContext = Object.fromEntries(
       (input.appContext ?? [])
@@ -164,6 +185,8 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
       ...(effort === undefined ? {} : { effort }),
       ...(serviceTier === undefined ? {} : { serviceTier }),
+      // Codex keeps no per-thread choice for this, so every turn must carry it.
+      ...(cyberAccessProgram === undefined ? {} : { cyberAccessProgram }),
       // Codex supplies its own mode instructions; send both modes to clear Plan on exit.
       collaborationMode: {
         mode: input.runtimePolicy.interactionMode,
@@ -177,6 +200,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
 );
 
 export {
+  codexCyberAccess,
   type CodexTurnStartParamsWithCollaborationMode,
   isProviderAdapterRuntimeRequestResponseError,
 };

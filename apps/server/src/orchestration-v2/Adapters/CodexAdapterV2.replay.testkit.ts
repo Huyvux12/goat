@@ -1,4 +1,9 @@
-import { CodexSettings, ProviderSessionId, ThreadId } from "@goat/contracts";
+import {
+  CodexSettings,
+  ProviderSessionId,
+  type ServerProviderModel,
+  ThreadId,
+} from "@goat/contracts";
 import type * as ProviderContinuationRequests from "@goat/provider-core/server/ProviderContinuationRequests";
 import * as IdAllocator from "@goat/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@goat/provider-core/server/ProviderAdapter";
@@ -70,6 +75,7 @@ export const makeCodexReplayHarness = (
   beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
   observeSleeps = false,
   onNotification: (method: string) => Effect.Effect<void> = () => Effect.void,
+  offeredModels?: Effect.Effect<ReadonlyArray<ServerProviderModel>>,
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -188,6 +194,7 @@ export const makeCodexReplayHarness = (
       settings: DEFAULT_CODEX_SETTINGS,
       environment: {},
       clientFactory,
+      ...(offeredModels === undefined ? {} : { offeredModels }),
       crypto: yield* Crypto.Crypto,
       fileSystem,
       idAllocator,
