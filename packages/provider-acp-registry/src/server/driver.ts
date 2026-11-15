@@ -58,6 +58,7 @@ import {
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import { probeFingerprint } from "./probeFingerprint.ts";
 import { makeAcpRegistryLearnedModels, type LearnedModelsCheck } from "./learnedModels.ts";
+import { environmentText, untilEnvironmentHolds } from "./environmentCheck.ts";
 import {
   acpRegistryEnvironmentKey,
   acpRegistrySessionEnvironment,
@@ -72,8 +73,6 @@ const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
 // Cache only successful authenticated probes so sign-in changes remain visible.
 const PROBE_SUCCESS_TTL_MS = 15 * 60 * 1_000;
 const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
-const environmentText = (environment: NodeJS.ProcessEnv) =>
-  JSON.stringify(Object.entries(environment).toSorted(([a], [b]) => a.localeCompare(b)));
 const MAINTENANCE = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: null,
@@ -587,25 +586,17 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             }),
           );
     });
-    // Readiness and the live state share one environment, read after the learned generation. If
-    // it changed by the end, the check is redone (twice at most); nothing waits on I/O between
-    // that comparison and the commit, so another environment's update cannot land in between.
-    const checkFrom: (
-      attempt: number,
-    ) => Effect.Effect<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog> = Effect.fn(
-      "AcpRegistryDriver.check",
-    )(function* (attempt: number) {
-      const generation = yield* learnedModels.generation;
-      const environment = yield* currentEnvironment;
-      const provider = yield* checkAcpRegistryProviderReadiness(readinessInput(environment));
-      const checked = yield* withLiveRuntimeState(provider, environment, { generation });
-      const moved = environmentText(yield* currentEnvironment) !== environmentText(environment);
-      if (moved && attempt < 2) return yield* checkFrom(attempt + 1);
-      return checked;
-    });
-    const checkProvider = checkFrom(0).pipe(
-      Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
-    );
+    // Readiness and the live state share one environment, read after the learned generation.
+    const checkProvider = untilEnvironmentHolds(
+      currentEnvironment,
+      Effect.gen(function* () {
+        const generation = yield* learnedModels.generation;
+        const environment = yield* currentEnvironment;
+        const provider = yield* checkAcpRegistryProviderReadiness(readinessInput(environment));
+        const result = yield* withLiveRuntimeState(provider, environment, { generation });
+        return { environment, result };
+      }),
+    ).pipe(Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog));
     const enrichProvider = (environment: NodeJS.ProcessEnv) =>
       checkAcpRegistryProviderStatus(
         {
