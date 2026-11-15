@@ -1,8 +1,3 @@
-import {
-  isTerminalProviderTurn,
-  providerTurnsForThread,
-  countTerminalTurnsAfterBoundary,
-} from "./CodexTurnHistory.ts";
 import { parseCodexRetryProgress } from "./CodexRetryProgress.ts";
 import { makeCodexMcpStartup } from "./CodexMcpStartup.ts";
 import { makeCodexThreadClosings } from "./CodexThreadClosings.ts";
@@ -54,10 +49,7 @@ import {
   type CodexTurnTokenUsageState,
 } from "../../provider/CodexTurnTokenUsage.ts";
 import { withCodexManagedFailure, failureResetAt } from "../../provider/CodexManagedFailure.ts";
-import {
-  buildCodexInitializeParams,
-  codexDefaultReasoningEffortOverride,
-} from "../../provider/CodexProvider.ts";
+import { buildCodexInitializeParams } from "../../provider/CodexProvider.ts";
 import {
   codexRateLimitsToUpdate,
   mergeCodexRateLimits,
@@ -101,7 +93,7 @@ import {
   dynamicToolSurface,
   dynamicToolTitle,
 } from "@goat/shared/toolActivity";
-import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@goat/shared/model";
+import { modelSelectionsEqual } from "@goat/shared/model";
 import { codexToolOutput } from "./CodexToolOutput.ts";
 import type {
   ChatAttachment,
@@ -132,11 +124,7 @@ import type {
 } from "@goat/contracts";
 import * as NodePath from "@effect/platform-node/NodePath";
 import { withCodexRequestDeadlines } from "./CodexRequestDeadline.ts";
-import {
-  CUA_DEFERRED_NOTE,
-  RESTART_RELOAD_NOTE,
-  makeCodexThreadStatuses,
-} from "./codexThreadStatuses.ts";
+import { makeCodexThreadStatuses } from "./codexThreadStatuses.ts";
 import * as CodexSubagents from "./codexSubagents.ts";
 import {
   interruptStopTargets,
@@ -164,13 +152,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import { resolveAttachmentPath, resolveAttachmentPathById } from "../../attachmentStore.ts";
-import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
 import { expandHomePath } from "@goat/provider-core/server/pathExpansion";
-import {
-  buildCodexAdditionalContext,
-  buildCodexDevelopmentContext,
-} from "../../provider/CodexDeveloperInstructions.ts";
 import {
   describeMcpElicitation,
   toMcpElicitationResponse,
@@ -226,8 +209,27 @@ import {
 import { codexManagedCuaDriver, codexTurnSkills } from "./CodexTurnSkills.ts";
 import { descendsFromCodexThread, makeCodexLiveWork } from "./CodexLiveWork.ts";
 import { codexSessionConfigKey } from "../../provider/CodexSessionConfigKey.ts";
-import type { CodexTurnStartInput } from "./CodexTurnStartInput.ts";
 import { codexThreadMcpEnvironment, makeCodexConfiguredBrowser } from "./CodexThreadEnvironment.ts";
+import {
+  type CodexTurnStartParamsWithCollaborationMode,
+  buildCodexTurnStartParams,
+  isProviderAdapterRuntimeRequestResponseError,
+} from "./CodexTurnStartParams.ts";
+export { buildCodexTurnStartParams } from "./CodexTurnStartParams.ts";
+import {
+  describeCodexGoal,
+  providerGoalFromCodex,
+  providerGoalsEqual,
+  validateCodexGoalObjective,
+} from "./CodexGoals.ts";
+import { resolveCodexForkBoundary, resolveCodexRollbackTurnCount } from "./CodexForkBoundary.ts";
+export { resolveCodexForkBoundary, resolveCodexRollbackTurnCount } from "./CodexForkBoundary.ts";
+import {
+  approvalDecisionToLegacyReviewDecision,
+  permissionsResponseFromDecision,
+  providerRequestKindFromPermissions,
+  toCodexUserInputAnswers,
+} from "./CodexApprovalResponses.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 export const CODEX_DRIVER_KIND = CODEX_PROVIDER;
@@ -497,82 +499,6 @@ function codexPlanStepStatus(
   }
 }
 
-function approvalDecisionToLegacyReviewDecision(
-  decision: ProviderApprovalDecision,
-): CodexSchema.ExecCommandApprovalResponse__ReviewDecision {
-  switch (decision) {
-    case "accept":
-      return "approved";
-    case "acceptForSession":
-    case "acceptAlways":
-      return "approved_for_session";
-    case "decline":
-      return { denied: { rejection: "User declined the request." } };
-    case "cancel":
-      return "abort";
-  }
-}
-
-function providerRequestKindFromPermissions(
-  permissions: CodexSchema.PermissionsRequestApprovalParams["permissions"],
-): ProviderRequestKind {
-  // Codex leaves the legacy `read`/`write` lists out when a path is a glob or
-  // special path, and is replacing them with `entries`.
-  const requests = (access: "read" | "write") =>
-    (permissions.fileSystem?.[access]?.length ?? 0) > 0 ||
-    permissions.fileSystem?.entries?.some((entry) => entry.access === access);
-  if (requests("write")) {
-    return "file-change";
-  }
-  if (requests("read")) {
-    return "file-read";
-  }
-  return "command";
-}
-
-function permissionsResponseFromDecision(input: {
-  readonly decision: ProviderApprovalDecision;
-  readonly permissions: CodexSchema.PermissionsRequestApprovalParams["permissions"];
-}): CodexSchema.PermissionsRequestApprovalResponse {
-  if (input.decision !== "accept" && input.decision !== "acceptForSession") {
-    return { permissions: {}, scope: "turn" };
-  }
-
-  return {
-    permissions: input.permissions,
-    scope: input.decision === "acceptForSession" ? "session" : "turn",
-  };
-}
-
-function answerValueToStrings(value: unknown): ReadonlyArray<string> {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item));
-  }
-  if (typeof value === "string") {
-    return [value];
-  }
-  if (value === null || value === undefined) {
-    return [];
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return [String(value)];
-  }
-  return [JSON.stringify(value)];
-}
-
-function toCodexUserInputAnswers(
-  answers: ProviderUserInputAnswers,
-  allowedQuestionIds: ReadonlySet<string>,
-): CodexSchema.ToolRequestUserInputResponse["answers"] {
-  return Object.fromEntries(
-    Object.entries(answers).flatMap(([questionId, value]) =>
-      allowedQuestionIds.has(questionId)
-        ? [[questionId, { answers: [...answerValueToStrings(value)] }]]
-        : [],
-    ),
-  );
-}
-
 function compactStrings(values: ReadonlyArray<string | null | undefined>): ReadonlyArray<string> {
   return values.flatMap((value) => {
     const trimmed = trimText(value);
@@ -596,166 +522,6 @@ function webSearchPatterns(item: CodexWebSearchItem): ReadonlyArray<string> {
       return compactStrings([item.query]);
   }
 }
-
-const decodeTurnApprovalPolicy = Schema.decodeUnknownEffect(
-  Schema.Union([CodexSchema.V2TurnStartParams__AskForApproval, Schema.Null]),
-);
-const decodeTurnSandboxPolicy = Schema.decodeUnknownEffect(
-  Schema.Union([CodexSchema.V2TurnStartParams__SandboxPolicy, Schema.Null]),
-);
-const decodeTurnReasoningEffort = Schema.decodeUnknownEffect(
-  Schema.Union([CodexSchema.V2TurnStartParams__ReasoningEffort, Schema.Null]),
-);
-
-const CodexTurnStartParamsWithCollaborationMode = CodexSchema.V2TurnStartParams.pipe(
-  Schema.fieldsAssign({
-    collaborationMode: Schema.optionalKey(CodexSchema.ClientRequest__CollaborationMode),
-    additionalContext: Schema.optionalKey(
-      Schema.Record(Schema.String, CodexSchema.V2TurnStartParams__AdditionalContextEntry),
-    ),
-  }),
-);
-type CodexTurnStartParamsWithCollaborationMode =
-  typeof CodexTurnStartParamsWithCollaborationMode.Type;
-const decodeCodexTurnStartParamsWithCollaborationMode = Schema.decodeUnknownEffect(
-  CodexTurnStartParamsWithCollaborationMode,
-);
-const isProviderAdapterRuntimeRequestResponseError = Schema.is(
-  ProviderAdapter.ProviderAdapterRuntimeRequestResponseError,
-);
-
-function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
-  readonly approvalPolicy: CodexSchema.V2TurnStartParams__AskForApproval;
-  readonly approvalsReviewer: CodexSchema.V2TurnStartParams__ApprovalsReviewer;
-  readonly sandboxPolicy: CodexSchema.V2TurnStartParams__SandboxPolicy;
-} {
-  switch (runtimeMode) {
-    case "approval-required":
-      return {
-        approvalPolicy: "untrusted",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "readOnly",
-        },
-      };
-    case "auto-accept-edits":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
-    case "auto":
-      return {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "auto_review",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-        },
-      };
-    case "full-access":
-      return {
-        approvalPolicy: "never",
-        approvalsReviewer: "user",
-        sandboxPolicy: {
-          type: "dangerFullAccess",
-        },
-      };
-  }
-}
-
-export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTurnStartParams")(
-  function* (input: CodexTurnStartInput) {
-    const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
-    const approvalPolicy =
-      input.runtimePolicy.approvalPolicy === undefined
-        ? runtimeModeDefaults.approvalPolicy
-        : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
-      input.runtimePolicy.sandboxPolicy === undefined
-        ? runtimeModeDefaults.sandboxPolicy
-        : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
-    const selectedEffort =
-      getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort") ??
-      codexDefaultReasoningEffortOverride(input.modelSelection.model);
-    const effort =
-      selectedEffort === undefined ? undefined : yield* decodeTurnReasoningEffort(selectedEffort);
-    const serviceTier =
-      input.omitServiceTier === true
-        ? undefined
-        : getCodexServiceTierOptionValue(input.modelSelection);
-    // MCP-written app context must be quoted user input, not developer instructions.
-    const appContext = Object.fromEntries(
-      (input.appContext ?? [])
-        .filter((entry) => entry.key !== "goat_memory")
-        .map((entry) => [entry.key, { kind: "untrusted" as const, value: entry.text }]),
-    );
-    const goatContext =
-      input.hasGoatMcp === true
-        ? buildCodexAdditionalContext(
-            { model: input.modelSelection.model, reasoningEffort: effort ?? undefined },
-            {
-              browser: input.browserToolsAvailable ?? true,
-              device: input.deviceToolsAvailable ?? false,
-              computerUse: input.computerUse ?? false,
-              screenCode: input.screenCode ?? false,
-              screenCodeSkillPath: input.screenCodeSkillPath,
-            },
-          )
-        : buildCodexDevelopmentContext();
-    const memoryContext =
-      input.memoryContext === undefined
-        ? input.clearMemoryContext
-          ? { goat_memory: { kind: "untrusted" as const, value: "" } }
-          : {}
-        : {
-            goat_memory: {
-              kind: "untrusted" as const,
-              value: (yield* Effect.try(() =>
-                MemoryContext.validateMemoryContext(input.memoryContext),
-              )).renderedText,
-            },
-          };
-    const deferredContext = input.computerUseDeferred
-      ? { goat_computer_use_deferred: { kind: "application" as const, value: CUA_DEFERRED_NOTE } }
-      : {};
-    const restartContext = input.reloadedAfterRestart
-      ? { goat_restart_reload: { kind: "application" as const, value: RESTART_RELOAD_NOTE } }
-      : {};
-    const additionalContext = {
-      ...goatContext,
-      ...deferredContext,
-      ...restartContext,
-      ...appContext,
-      ...memoryContext,
-    };
-
-    return yield* decodeCodexTurnStartParamsWithCollaborationMode({
-      threadId: input.nativeThreadId,
-      input: input.codexInput,
-      ...(additionalContext ? { additionalContext } : {}),
-      cwd: input.runtimePolicy.cwd,
-      model: input.modelSelection.model,
-      // Catalogues can default summaries to "none"; request them explicitly on every turn.
-      summary: "detailed",
-      // Omitting the reviewer on resume preserves the previous Auto reviewer.
-      approvalsReviewer: runtimeModeDefaults.approvalsReviewer,
-      ...(approvalPolicy === undefined ? {} : { approvalPolicy }),
-      ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
-      ...(effort === undefined ? {} : { effort }),
-      ...(serviceTier === undefined ? {} : { serviceTier }),
-      // Codex supplies its own mode instructions; send both modes to clear Plan on exit.
-      collaborationMode: {
-        mode: input.runtimePolicy.interactionMode,
-        settings: {
-          model: input.modelSelection.model,
-          ...(effort === undefined ? {} : { reasoning_effort: effort }),
-        },
-      },
-    });
-  },
-);
 
 function providerSession(input: {
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
@@ -830,136 +596,9 @@ function providerThreadFromCodexThread(input: {
   };
 }
 
-class CodexGoalObjectiveTooLongError extends Schema.TaggedError<CodexGoalObjectiveTooLongError>()(
-  "CodexGoalObjectiveTooLongError",
-  { length: Schema.Number, limit: Schema.Number },
-) {
-  override get message() {
-    return `The goal objective is ${this.length} characters; Codex supports at most ${this.limit}. Shorten it and send /goal again. The current goal was not changed.`;
-  }
-}
-
-function validateCodexGoalObjective(objective: string) {
-  let length = 0;
-  for (const _ of objective) length++;
-  return length > CodexSchema.MAX_THREAD_GOAL_OBJECTIVE_CHARS
-    ? Effect.fail(
-        new CodexGoalObjectiveTooLongError({
-          length,
-          limit: CodexSchema.MAX_THREAD_GOAL_OBJECTIVE_CHARS,
-        }),
-      )
-    : Effect.void;
-}
-
-type CodexThreadGoal = CodexSchema.V2ThreadGoalUpdatedNotification["goal"];
-
-const CODEX_GOAL_STATUSES = {
-  active: "active",
-  paused: "paused",
-  blocked: "blocked",
-  usageLimited: "usage_limited",
-  budgetLimited: "budget_limited",
-  complete: "complete",
-} as const satisfies Record<CodexThreadGoal["status"], OrchestrationV2ProviderGoal["status"]>;
-
-function providerGoalFromCodex(goal: CodexThreadGoal): OrchestrationV2ProviderGoal | null {
-  const objective = goal.objective.trim();
-  if (objective.length === 0) return null;
-  return {
-    objective,
-    status: CODEX_GOAL_STATUSES[goal.status],
-    tokensUsed: Math.max(0, goal.tokensUsed),
-    tokenBudget: goal.tokenBudget ?? null,
-    timeUsedSeconds: Math.max(0, goal.timeUsedSeconds),
-  };
-}
-
-const providerGoalsEqual = Schema.toEquivalence(Schema.NullOr(OrchestrationV2ProviderGoal));
-
-function describeCodexGoal(goal: OrchestrationV2ProviderGoal): string {
-  return `Goal ${goal.status.replace("_", " ")}: ${goal.objective}`;
-}
-
 // Codex starts the next goal turn milliseconds after the last one completes.
 const CODEX_GOAL_CONTINUATION_GRACE = "5 seconds";
 const CODEX_PRE_OUTPUT_RETRY_DELAYS_MS = [30_000, 120_000, 300_000] as const;
-
-const resolveCodexForkRollbackTurnCount = Effect.fn("CodexAdapterV2.resolveForkRollbackTurnCount")(
-  function* (input: ProviderAdapter.ProviderAdapterV2ForkThreadInput) {
-    if (input.providerTurnId === undefined || input.sourceProviderTurns === undefined) {
-      return 0;
-    }
-
-    const rollbackTurnCount = countTerminalTurnsAfterBoundary(
-      providerTurnsForThread(input.sourceProviderTurns, input.sourceProviderThread),
-      input.providerTurnId,
-    );
-    if (rollbackTurnCount === null) {
-      return yield* new ProviderAdapter.ProviderAdapterForkThreadError({
-        driver: CODEX_PROVIDER,
-        providerThreadId: input.sourceProviderThread.id,
-        cause: `Cannot fork Codex thread from provider turn ${input.providerTurnId}: source turn was not found in provider thread ${input.sourceProviderThread.id}.`,
-      });
-    }
-
-    return rollbackTurnCount;
-  },
-);
-
-/** Codex lastTurnId is inclusive, atomically omitting later turns even in paginated threads. */
-export const resolveCodexForkBoundary = Effect.fn("CodexAdapterV2.resolveForkBoundary")(function* (
-  input: ProviderAdapter.ProviderAdapterV2ForkThreadInput,
-) {
-  const rollbackTurnCount = yield* resolveCodexForkRollbackTurnCount(input);
-  if (input.providerTurnId === undefined || input.sourceProviderTurns === undefined) {
-    return { lastTurnId: undefined, rollbackTurnCount };
-  }
-
-  const boundaryTurn = providerTurnsForThread(
-    input.sourceProviderTurns,
-    input.sourceProviderThread,
-  ).find((turn) => turn.id === input.providerTurnId);
-  const nativeTurnId = boundaryTurn?.nativeTurnRef?.nativeId;
-  if (nativeTurnId === null || nativeTurnId === undefined) {
-    return { lastTurnId: undefined, rollbackTurnCount };
-  }
-
-  return { lastTurnId: nativeTurnId, rollbackTurnCount: 0 };
-});
-
-export const resolveCodexRollbackTurnCount = Effect.fn("CodexAdapterV2.resolveRollbackTurnCount")(
-  function* (input: ProviderAdapter.ProviderAdapterV2RollbackThreadInput) {
-    const providerTurns = input.providerThreadTurns;
-    switch (input.target.type) {
-      case "thread_start":
-        return providerTurns.filter(isTerminalProviderTurn).length;
-      case "provider_turn": {
-        if (input.target.providerTurn.providerThreadId !== input.providerThread.id) {
-          return yield* new ProviderAdapter.ProviderAdapterRollbackThreadError({
-            driver: CODEX_PROVIDER,
-            providerThreadId: input.providerThread.id,
-            cause: `Cannot roll back Codex thread ${input.providerThread.id} to provider turn ${input.target.providerTurn.id}: target turn belongs to provider thread ${input.target.providerTurn.providerThreadId}.`,
-          });
-        }
-
-        const rollbackTurnCount = countTerminalTurnsAfterBoundary(
-          providerTurns,
-          input.target.providerTurn.id,
-        );
-        if (rollbackTurnCount === null) {
-          return yield* new ProviderAdapter.ProviderAdapterRollbackThreadError({
-            driver: CODEX_PROVIDER,
-            providerThreadId: input.providerThread.id,
-            cause: `Cannot roll back Codex thread ${input.providerThread.id} to provider turn ${input.target.providerTurn.id}: target turn was not found in durable provider turn history.`,
-          });
-        }
-
-        return rollbackTurnCount;
-      }
-    }
-  },
-);
 
 function codexErrorInfoCode(value: unknown): string | null {
   if (typeof value === "string") {
