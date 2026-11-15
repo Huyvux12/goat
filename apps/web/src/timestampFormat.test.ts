@@ -20,6 +20,8 @@ describe("GOAT Bot work rows", () => {
       86_399_999,
       86_400_000,
       9 * 86_400_000,
+      30 * 86_400_000,
+      400 * 86_400_000,
     ]) {
       const web = formatRelativeElapsed(elapsed).value;
       expect(goatBotRowTime(new Date(now - elapsed).toISOString(), now)?.text).toBe(
