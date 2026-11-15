@@ -1,3 +1,4 @@
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -65,7 +66,7 @@ it.effect("settles native subagents when a workspace handoff completes the root 
                 Effect.as({ committed: true, storedEvents: [] }),
               ),
           }),
-          IdAllocator.layer,
+          Layer.merge(IdAllocator.layer, ThreadCommandExecutor.layer),
           Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({
             ingestNormalized: () => Effect.succeed([]),
           }),

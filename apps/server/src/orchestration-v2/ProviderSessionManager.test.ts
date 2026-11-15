@@ -5701,6 +5701,7 @@ it.effect.each(turnStartMemoryCases)(
                     }),
                     Layer.succeed(EventSink.EventSinkV2, sink),
                     Layer.succeed(IdAllocator.IdAllocatorV2, ids),
+                    ThreadCommandExecutor.layer,
                     Layer.mock(CheckpointService.CheckpointServiceV2)({
                       captureBaseline: () => Effect.void,
                     }),

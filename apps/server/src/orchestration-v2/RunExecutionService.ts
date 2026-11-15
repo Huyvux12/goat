@@ -92,6 +92,7 @@ import {
 export { makeInterruptResultTurnItem } from "./runTerminationCause.ts";
 import { makeCloudResultEvents } from "./CloudResultEvents.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { userFacingDatabaseErrorMessage } from "./UserFacingErrors.ts";
 
 type ProviderTerminalEvent = Extract<
@@ -407,6 +408,7 @@ export const layer: Layer.Layer<
   | RemoteReportInbox.RemoteReportInbox
   | PreviewAgentActivity.PreviewAgentActivity
   | TurnItemPositionStore.TurnItemPositionStoreV2
+  | ThreadCommandExecutor.ThreadCommandExecutor
 > = Layer.effect(
   RunExecutionServiceV2,
   Effect.gen(function* () {
@@ -421,6 +423,7 @@ export const layer: Layer.Layer<
     const remoteReportInbox = yield* RemoteReportInbox.RemoteReportInbox;
     const previewAgentActivity = yield* PreviewAgentActivity.PreviewAgentActivity;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
+    const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const finalizationObserver = yield* RunFinalizationService.RunFinalizationObserver;
     const cloudObservers = yield* Ref.make<ReadonlySet<RunId>>(new Set());
 
@@ -992,6 +995,7 @@ export const layer: Layer.Layer<
           ReadonlySet<OrchestrationV2TurnItem["id"]>
         >(new Set(inheritedBackgroundTurnItemsById.keys()));
         const openRunOwnedSubagents = yield* Ref.make(emptyOpenRunOwnedSubagentProjection());
+        let rootTurnOwnershipChecked = false;
         const finalizeRootRun = Effect.fn("RunExecutionService.finalizeRootRun")(function* (
           terminal: ProviderTerminalEvent,
         ) {
@@ -1399,7 +1403,7 @@ export const layer: Layer.Layer<
             const isRootProviderThreadUpdate =
               event.type === "provider_thread.updated" &&
               event.providerThread.id === input.providerThread.id;
-            const storedEvents = yield* providerEventIngestor.ingestNormalized({
+            const ingest = providerEventIngestor.ingestNormalized({
               receiptAttemptId: input.attempt.id,
               analyticsContext: {
                 modelSelection: input.modelSelection,
@@ -1436,6 +1440,52 @@ export const layer: Layer.Layer<
                     }
                 : {}),
             });
+            const startedTurn =
+              event.type === "provider_turn.updated" &&
+              event.providerTurn.runAttemptId === input.attempt.id &&
+              event.providerTurn.providerThreadId === input.providerThread.id &&
+              !isTerminalProviderTurnStatus(event.providerTurn.status) &&
+              !rootTurnOwnershipChecked
+                ? event.providerTurn
+                : undefined;
+            const interruptStartedTurn =
+              startedTurn === undefined
+                ? Effect.void
+                : Ref.get(latestProviderThread).pipe(
+                    Effect.flatMap((providerThread) =>
+                      input.session.interruptTurn({
+                        providerThread,
+                        providerTurnId: startedTurn.id,
+                      }),
+                    ),
+                    Effect.catchCauseIf(
+                      (cause) => !Cause.hasInterruptsOnly(cause),
+                      (cause) =>
+                        Effect.logWarning(
+                          "Failed to interrupt provider turn after ownership loss",
+                          { runId: input.run.id, cause },
+                        ),
+                    ),
+                  );
+            const shouldStartProviderTurn = input.shouldStartProviderTurn;
+            let storedEvents;
+            if (startedTurn !== undefined && shouldStartProviderTurn !== undefined) {
+              rootTurnOwnershipChecked = true;
+              const [stored, ownership] = yield* threadCommands.withLock(
+                input.run.threadId,
+                Effect.gen(function* () {
+                  const stored = yield* ingest;
+                  return [stored, yield* Effect.exit(shouldStartProviderTurn())] as const;
+                }),
+              );
+              storedEvents = stored;
+              if (Exit.isFailure(ownership) || !ownership.value) {
+                yield* interruptStartedTurn.pipe(Effect.forkIn(scope, { startImmediately: true }));
+              }
+              yield* ownership;
+            } else {
+              storedEvents = yield* ingest;
+            }
             storedEventCount = storedEvents.length;
             if (isRootProviderThreadUpdate && rootTerminalAlreadySeen && storedEventCount === 0) {
               yield* Ref.set(providerThreadOwnerLost, true);

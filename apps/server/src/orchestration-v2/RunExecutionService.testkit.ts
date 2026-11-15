@@ -1,3 +1,4 @@
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import * as RemoteReportInbox from "../remoteReports/RemoteReportInbox.ts";
 
 import {
@@ -75,7 +76,7 @@ export const layerRunExecutionTest = RunExecutionService.layer.pipe(
       Layer.mock(CheckpointService.CheckpointServiceV2)({ captureBaseline: () => Effect.void }),
       layerTurnItemPositionsTest,
       mockEventSink({}),
-      IdAllocator.layer,
+      Layer.merge(IdAllocator.layer, ThreadCommandExecutor.layer),
       Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({
         ingestNormalized: () => Effect.succeed([]),
       }),
@@ -186,7 +187,7 @@ export function captureRootRunTermination(input: {
                 return { committed: true, storedEvents: [] };
               }),
           }),
-          IdAllocator.layer,
+          Layer.merge(IdAllocator.layer, ThreadCommandExecutor.layer),
           Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({
             ingestNormalized: input.ingestNormalized ?? (() => Effect.succeed([])),
           }),
