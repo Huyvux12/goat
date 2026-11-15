@@ -1,3 +1,4 @@
+import "./HumanInputGuest.ts";
 // @effect-diagnostics globalDate:off globalTimers:off - This isolated Electron preload does not run inside an Effect runtime.
 import { ipcRenderer } from "electron";
 import { getElementContext } from "react-grab/primitives";
@@ -158,28 +159,6 @@ interface AnnotationSession {
 
 let activeSession: AnnotationSession | null = null;
 let annotationTheme: DesktopPreviewAnnotationTheme | null = null;
-
-const reportHumanPointerInput = (event: PointerEvent): void => {
-  if (!event.isTrusted) return;
-  ipcRenderer.send(HUMAN_INPUT_CHANNEL, {
-    kind: "pointer",
-    x: event.clientX,
-    y: event.clientY,
-    button: event.button,
-  });
-};
-
-const reportHumanKeyInput = (event: KeyboardEvent): void => {
-  if (!event.isTrusted) return;
-  ipcRenderer.send(HUMAN_INPUT_CHANNEL, {
-    kind: "key",
-    key: event.key,
-    code: event.code,
-  });
-};
-
-window.addEventListener("pointerdown", reportHumanPointerInput, true);
-window.addEventListener("keydown", reportHumanKeyInput, true);
 
 // Registered before page scripts so their capture listeners never see keys typed into the
 // overlay; the closed shadow root retargets those to the host, hiding that they edit text.
