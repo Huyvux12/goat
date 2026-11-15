@@ -27,6 +27,7 @@ import { isSshRemoteUrl } from "@goat/shared/sourceControl";
 
 import { GH_PROCESS_CONCURRENCY } from "./GitHubCredentials.ts";
 import * as GitHubRest from "./GitHubRest.ts";
+import { decodeRestPullRequests, restPullRequestNode } from "./gitHubRestPullRequest.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubChangeRequestTemplate from "./gitHubChangeRequestTemplate.ts";
 import * as GitHubGraphQlClient from "./gitHubGraphQlClient.ts";
@@ -497,6 +498,34 @@ export const make = Effect.gen(function* () {
     const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
     const ownerMatch = /^([^:/\s]+):(.+)$/u.exec(input.headSelector.trim());
     const headRefName = ownerMatch?.[2] ?? input.headSelector.trim();
+    if (ownerMatch) {
+      // GraphQL cannot filter heads by owner, and names like a fork's `main` match thousands.
+      const query = new URLSearchParams({
+        head: `${ownerMatch[1]}:${headRefName}`,
+        state: input.state === "all" || input.state === "open" ? input.state : "closed",
+        sort: "created",
+        direction: "desc",
+        per_page: String(OWNER_HEAD_SCAN_LIMIT),
+      });
+      const response = yield* rest({
+        host: locator.host,
+        operation: "listPullRequestsByHead",
+        allowReserve: input.allowReserve,
+        path: `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}/pulls?${query}`,
+      });
+      const decoded = decodeRestPullRequests(response.body);
+      if (Result.isFailure(decoded)) {
+        return yield* failure("GitHub returned an invalid change request list.", decoded.failure);
+      }
+      return decoded.success
+        .flatMap((entry) => {
+          const node = Option.getOrNull(decodePullRequestNode(restPullRequestNode(entry)));
+          const record = node === null ? null : toPullRequestRecord(node);
+          return record === null ? [] : [record];
+        })
+        .filter((row) => input.state === "all" || row.state === input.state)
+        .slice(0, limit);
+    }
     const result = yield* graphqlRead(
       {
         host: locator.host,
@@ -512,22 +541,17 @@ export const make = Effect.gen(function* () {
           name: locator.name,
           head: headRefName,
           states: GRAPHQL_STATES[input.state],
-          first: ownerMatch ? OWNER_HEAD_SCAN_LIMIT : limit,
+          first: limit,
         },
         input.allowReserve ? interactiveHeadResolver : backgroundHeadResolver,
       ),
     );
     if (result.repository === null) return yield* notFound("The repository could not be read.");
-    const rows = (result.repository.pullRequests.nodes ?? []).flatMap((entry) => {
+    return (result.repository.pullRequests.nodes ?? []).flatMap((entry) => {
       const node = Option.getOrNull(decodePullRequestNode(entry));
       const record = node === null ? null : toPullRequestRecord(node);
       return record === null ? [] : [record];
     });
-    if (!ownerMatch) return rows;
-    const headOwner = ownerMatch[1]!.toLowerCase();
-    return rows
-      .filter((row) => row.headRepositoryOwnerLogin?.toLowerCase() === headOwner)
-      .slice(0, limit);
   });
 
   const readPullRequest = Effect.fn("GitHubSourceControlProvider.readPullRequest")(
@@ -814,9 +838,12 @@ export const make = Effect.gen(function* () {
     resolveRemoteWebHost: Effect.fn("GitHubSourceControlProvider.resolveRemoteWebHost")(
       ({ context }) => Effect.succeed(gitHubApiHostForRemote(context.remoteUrl)),
     ),
-    // GitHub matches bare heads; read a full page to disambiguate forks by owner.
-    headBranchProbe: ({ headSelectors }) => ({
-      headSelectors: headSelectors.filter((selector) => !selector.includes(":")),
+    // GitHub matches bare heads; read a full page to disambiguate forks by owner. A default branch
+    // collides with most forks, so its owner-qualified lookup has GitHub filter by owner instead.
+    headBranchProbe: ({ headSelectors, defaultBranchHeadSelector }) => ({
+      headSelectors: defaultBranchHeadSelector
+        ? [defaultBranchHeadSelector]
+        : headSelectors.filter((selector) => !selector.includes(":")),
       limit: 100,
     }),
     readChangeRequestTemplate: Effect.fn("GitHubSourceControlProvider.readChangeRequestTemplate")(
