@@ -368,4 +368,49 @@ describe("PreviewManager guest events", () => {
       expect(statuses.at(-1)?.kind).toBe("Success");
     }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
+
+  effectIt.effect("announces a still-loading guest before the failure of its first page", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+      const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
+      const lines = yield* Queue.unbounded<string>();
+      yield* host.events.pipe(
+        Stream.runForEach((line) => Queue.offer(lines, new TextDecoder().decode(line))),
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      const failListeners: Array<(...args: unknown[]) => void> = [];
+      const hostListening = Promise.withResolvers<void>();
+      const guest = Object.assign(makeTestPreviewWebContents(unusedCapture, 42), {
+        isDevToolsOpened: () => false,
+        getUserAgent: () => "Electron",
+        isLoadingMainFrame: () => true,
+        once: vi.fn(),
+        // The manager subscribes when it prepares the guest; the host only once it attaches.
+        on: (event: string, listener: (...args: unknown[]) => void) => {
+          if (event !== "did-fail-load") return;
+          failListeners.push(listener);
+          if (failListeners.length === 2) hostListening.resolve();
+        },
+      });
+      const manager = yield* PreviewManager.PreviewManager;
+      yield* manager.createTab("tab_1", { serverTab });
+      yield* manager.prepareWebview(guest);
+      fromId.mockReturnValue(guest);
+      yield* manager.registerWebview("tab_1", 42);
+      yield* Effect.promise(() => hostListening.promise);
+
+      for (const listener of failListeners) {
+        listener({}, -102, "ERR_CONNECTION_REFUSED", "http://localhost:3000/", true);
+      }
+
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({ type: "attached", ...serverTab });
+      expect(JSON.parse(yield* Queue.take(lines))).toEqual({
+        type: "loadFailed",
+        ...serverTab,
+        url: "http://localhost:3000/",
+        code: -102,
+        description: "ERR_CONNECTION_REFUSED",
+      });
+    }).pipe(Effect.provide(managerLayer()), Effect.scoped),
+  );
 });
