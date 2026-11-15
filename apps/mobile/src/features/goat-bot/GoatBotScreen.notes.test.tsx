@@ -60,6 +60,26 @@ vi.mock("../threads/ComposerAttachmentButton", () => ({
     <button onClick={props.onPickMedia}>Photo Library</button>
   ),
 }));
+// The chat's + opens a native menu; a button per action, "<menu>: <action>", stands for choosing it.
+vi.mock("../../components/ui/Menu", () => ({
+  Menu: (props: {
+    children?: ReactNode;
+    accessibilityLabel?: string;
+    actions: ReadonlyArray<{ id: string; title: string }>;
+    onPressAction: (event: { nativeEvent: { event: string } }) => void;
+  }) => (
+    <div>
+      {props.children}
+      {props.actions.map((action) => (
+        <button
+          key={action.id}
+          aria-label={`${props.accessibilityLabel}: ${action.title}`}
+          onClick={() => props.onPressAction({ nativeEvent: { event: action.id } })}
+        />
+      ))}
+    </div>
+  ),
+}));
 vi.mock("../../components/ComposerAttachmentStrip", () => ({
   ComposerAttachmentStrip: () => null,
 }));
@@ -592,7 +612,7 @@ it("a photo the picker is still reading counts as a message in the box", async (
   const { Alert } = await import("react-native");
   vi.mocked(Alert.alert).mockClear();
   const view = await render();
-  await press(view.container, "Photo Library");
+  await press(view.container, "Add to message: Photo Library");
   expect(box.pick).not.toBeNull();
   await press(view.container, "Open GOAT Bot home");
   await press(view.container, "New routine");
@@ -614,7 +634,7 @@ it("a photo the picker could not read, or that failed outright, frees the box ag
     setup();
     session.attachments = true;
     const view = await render();
-    await press(view.container, "Photo Library");
+    await press(view.container, "Add to message: Photo Library");
     await press(view.container, "Open GOAT Bot home");
     await press(view.container, "New routine");
     expect(composer(view.container).value).toBe("");
