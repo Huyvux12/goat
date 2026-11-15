@@ -11,7 +11,6 @@ import {
   squashAtomCommandFailure,
 } from "@goat/client-runtime/state/runtime";
 import type { EnvironmentId, ThreadId } from "@goat/contracts";
-import { useState } from "react";
 import { useThreadShell } from "~/state/entities";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -21,6 +20,7 @@ import { Label } from "../ui/label";
 import { Toggle } from "../ui/toggle";
 import { ToggleGroup } from "../ui/toggle-group";
 import { useGoatBotName } from "./goatBotMemberContext";
+import { useGoatBotHomeState } from "./goatBotHomeState";
 import { HoldsNavigation } from "~/lib/navigationHolds";
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -38,10 +38,17 @@ export function GoatBotCheckInForm(props: {
     label: "GOAT Bot check-in routine",
     reportFailure: false,
   });
-  const [timeOfDay, setTimeOfDay] = useState(CHECK_IN_DEFAULT_TIME);
-  const [weekdays, setWeekdays] = useState<readonly number[]>(CHECK_IN_DEFAULT_WEEKDAYS);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // In Home's store, so a save still out after a flip keeps the form on screen from sending again.
+  const [timeOfDay, setTimeOfDay] = useGoatBotHomeState(
+    "input:checkIn:time",
+    CHECK_IN_DEFAULT_TIME,
+  );
+  const [weekdays, setWeekdays] = useGoatBotHomeState<readonly number[]>(
+    "input:checkIn:weekdays",
+    CHECK_IN_DEFAULT_WEEKDAYS,
+  );
+  const [saving, setSaving] = useGoatBotHomeState("input:checkIn:saving", false);
+  const [error, setError] = useGoatBotHomeState<string | null>("input:checkIn:error", null);
   const botName = useGoatBotName();
   const save = async () => {
     if (bot === null || saving) return;

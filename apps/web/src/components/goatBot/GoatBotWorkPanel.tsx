@@ -15,7 +15,7 @@ import type {
   ThreadId,
 } from "@goat/contracts";
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { type ComponentProps, useRef, useState } from "react";
 import { ArrowLeftIcon, XIcon } from "~/components/solar";
 import { useEnvironment } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
@@ -42,6 +42,12 @@ import {
 } from "./goatBotMemberContext";
 import { useBotThreads } from "./useBotRoster";
 import { useBotWorkHistory } from "./useBotWorkHistory";
+import {
+  type GoatBotHomeStore,
+  GoatBotHomeStoreContext,
+  useGoatBotHomeRef,
+  useGoatBotHomeState,
+} from "./goatBotHomeState";
 import { useGoatBotMemberWaitingCount } from "./useGoatBotMemberStatus";
 import type { GoatBotRoutineLanding } from "./useGoatBotRoutineLanding";
 import type { GoatBotSourceIds } from "./useGoatBotSource";
@@ -50,7 +56,19 @@ import type { GoatBotSourceIds } from "./useGoatBotSource";
 const tabs = ["Home", "Library"] as const;
 type Tab = (typeof tabs)[number];
 
+/** Home's panel; `store`, the chat view's, keeps where it was and what was typed across panels. */
 export function GoatBotWorkPanel({
+  store,
+  ...props
+}: ComponentProps<typeof WorkPanel> & { readonly store?: GoatBotHomeStore | undefined }) {
+  return (
+    <GoatBotHomeStoreContext value={store ?? null}>
+      <WorkPanel {...props} />
+    </GoatBotHomeStoreContext>
+  );
+}
+
+function WorkPanel({
   environmentId,
   threadId,
   onDraft,
@@ -93,16 +111,22 @@ export function GoatBotWorkPanel({
   /** Back's return has had its one focus attempt; the parent forgets it. */
   onHomeReturnConsumed?: (() => void) | undefined;
 }) {
-  const [tab, setTab] = useState<Tab>("Home");
+  // A Back return opens Home where Back points, over wherever it was before.
+  const fresh = { fresh: homeReturn !== null };
+  const [storedTab, setTab] = useGoatBotHomeState<Tab>("position:tab", "Home", fresh);
   // Back's return applies once; the row stays marked until a peek opens.
   const [pendingReturn, setPendingReturn] = useState(homeReturn);
   const [returnedTask, setReturnedTask] = useState(homeReturn?.taskId ?? null);
   // Work's tail stays open across a peek, which replaces the whole Home scroll while it shows.
-  const [showAllWork, setShowAllWork] = useState(homeReturn !== null);
-  const [peek, setPeek] = useState<{
+  const [showAllWork, setShowAllWork] = useGoatBotHomeState(
+    "position:showAllWork",
+    homeReturn !== null,
+    fresh,
+  );
+  const [storedPeek, setPeek] = useGoatBotHomeState<{
     readonly taskId: ChannelTaskId;
     readonly title: string;
-  } | null>(null);
+  } | null>("position:peek", null, fresh);
   // Where focus lands once Home shows again: the row Back returns to, or the Home tab when the
   // peek held focus and closed because its task left the list. It applies once, so later tab
   // switches keep focus.
@@ -115,16 +139,28 @@ export function GoatBotWorkPanel({
   const [routineFocus, setRoutineFocus] = useState<string | null>(null);
   // What held focus at the chip click; a row that shows later takes focus only if it still does.
   const [landingFrom, setLandingFrom] = useState<Element | null>(null);
-  const [landedSeq, setLandedSeq] = useState<number | null>(null);
-  if (routineLanding !== null && routineLanding.seq !== landedSeq) {
-    setLandedSeq(routineLanding.seq);
-    setTab("Home");
-    setPeek(null);
+  // A routine chip shows Home on its routine until the person moves on, which records it; nothing
+  // in render writes the store, and a remounted panel does not land again.
+  const [landedSeq, setLandedSeq] = useGoatBotHomeState<number | null>("position:landedSeq", null);
+  const landingSeq =
+    routineLanding !== null && routineLanding.seq !== landedSeq ? routineLanding.seq : null;
+  const [landingSeen, setLandingSeen] = useState<number | null>(null);
+  if (routineLanding !== null && landingSeq !== null && landingSeq !== landingSeen) {
+    setLandingSeen(landingSeq);
     setPeekHasFocus(false);
     setFocusTarget(null);
     setRoutineFocus(routineLanding.routineId);
     setLandingFrom(routineLanding.from);
   }
+  const settleLanding = () => {
+    if (landingSeq === null) return;
+    // What the landing showed becomes where Home is; a handler's own change follows.
+    setLandedSeq(landingSeq);
+    setTab("Home");
+    setPeek(null);
+  };
+  const tab = landingSeq === null ? storedTab : "Home";
+  const peek = landingSeq === null ? storedPeek : null;
   const focusOnce = (element: HTMLElement | null) => {
     if (element === null) return;
     // Only focus that the closed peek dropped moves; someone typing elsewhere keeps theirs.
@@ -141,16 +177,23 @@ export function GoatBotWorkPanel({
     if (pendingReturn !== null) {
       setPendingReturn(null);
       onHomeReturnConsumed?.();
+      // What Back showed is now where Home is, so a later flip keeps it.
+      setTab(tab);
+      setShowAllWork(showAllWork);
+      setPeek(peek);
+      homeScroll.set(homeScroll.get());
     }
   };
   // Back also returns Home to where it was scrolled, once per mount; a routine landing scrolls it.
-  const homeScroll = useRef(0);
+  const homeScroll = useGoatBotHomeRef("position:homeScroll", 0, fresh);
   const homePanel = useRef<HTMLElement | null>(null);
   const restoreHome = (element: HTMLElement | null) => {
+    // A peeked task that left the list is forgotten once Home shows in its place.
+    if (element !== null && peekGone) setPeek(null);
     if (element === null || element === homePanel.current) return;
     homePanel.current = element;
     if (routineFocus === null) {
-      element.scrollTop = homeScroll.current;
+      element.scrollTop = homeScroll.get();
       // A row Back returned focus to may have moved below that scroll while the peek was open.
       const active = document.activeElement;
       if (active instanceof HTMLElement && element.contains(active))
@@ -225,10 +268,9 @@ export function GoatBotWorkPanel({
         );
   // A task the list no longer has, once it has loaded, closes its peek.
   const peekGone = peek !== null && loaded && !failed && peeked === undefined;
-  if (peekGone) {
-    setPeek(null);
+  if (peekGone && peekHasFocus) {
     setPeekHasFocus(false);
-    if (peekHasFocus) setFocusTarget("home");
+    setFocusTarget("home");
   }
   if (peek !== null && peekRows !== undefined && !peekGone) {
     return (
@@ -317,6 +359,7 @@ export function GoatBotWorkPanel({
         onValueChange={(value: Tab) => {
           setTab(value);
           setRoutineFocus(null);
+          settleLanding();
         }}
         className="min-h-0 flex-1"
       >
@@ -337,7 +380,7 @@ export function GoatBotWorkPanel({
           className="mt-4 min-h-0 overflow-y-auto"
           ref={restoreHome}
           onScroll={(event) => {
-            homeScroll.current = event.currentTarget.scrollTop;
+            homeScroll.set(event.currentTarget.scrollTop);
           }}
         >
           <div className="flex flex-col gap-5 pt-1">
@@ -371,6 +414,7 @@ export function GoatBotWorkPanel({
                   if (peekRows === undefined) return;
                   setRoutineFocus(null);
                   setReturnedTask(null);
+                  settleLanding();
                   setPeek({ taskId: row.task.taskId, title: row.task.title });
                 }}
                 returnTaskId={returnedTask}
@@ -407,7 +451,10 @@ export function GoatBotWorkPanel({
                 onRetry={routines.refresh}
                 onDraft={onDraft}
                 focusRoutineId={routineFocus}
-                onRoutineFocused={() => setRoutineFocus(null)}
+                onRoutineFocused={() => {
+                  setRoutineFocus(null);
+                  settleLanding();
+                }}
                 routineMayFocus={landingMayFocus}
               />
             </GoatBotSectionCard>

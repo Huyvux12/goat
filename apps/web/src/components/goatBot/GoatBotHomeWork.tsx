@@ -18,7 +18,7 @@ import type {
   EnvironmentId,
   ThreadId,
 } from "@goat/contracts";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { holdNavigation } from "~/lib/navigationHolds";
 import { cn } from "~/lib/utils";
@@ -36,6 +36,7 @@ import { Button } from "../ui/button";
 import { goatBotSearch, useGoatBotMember } from "./goatBotMemberContext";
 import { GoatBotCardSkeleton, GoatBotShowMoreRow } from "./GoatBotSectionCard";
 import { rememberHomeOrigin } from "./goatBotHomeRequest";
+import { useGoatBotHomeState } from "./goatBotHomeState";
 import { GoatBotWorkDetails } from "./GoatBotWorkDetails";
 
 type TaskRow = Extract<BotThreadRow, { kind: "task" }>;
@@ -336,7 +337,10 @@ function WorkRow({
   };
   const update = useAtomCommand(channelEnvironment.updateTaskView);
   const canUpdate = useAtomValue(channelEnvironment.updateTaskView.permissionAtom(environmentId));
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useGoatBotHomeState(
+    `position:expanded:${row.task.taskId}`,
+    false,
+  );
   const status = wait ?? presentTaskStatus(row.task.status, row.view.doneAt).label;
   async function menu(position: { readonly x: number; readonly y: number }) {
     const api = readLocalApi();

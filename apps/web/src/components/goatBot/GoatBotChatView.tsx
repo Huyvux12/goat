@@ -11,6 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
 import { useGoatBotHomePresentation } from "./goatBotLayout";
+import { useGoatBotHomeStore } from "./goatBotHomeState";
 
 import { cn } from "~/lib/utils";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
@@ -212,6 +213,7 @@ function GoatBotChatViewContent({
   const botIdentity = `${environmentId ?? ""}:${member?.sessionThreadId ?? bot?.threadId ?? ""}`;
   // A bot or environment switch remounts Home, so its history walk starts over.
   const homeKey = goatBotHomeKey(bot?.environmentId ?? null, member?.botId ?? null);
+  const homeStore = useGoatBotHomeStore(homeKey);
   const [openedHomeEntry, setOpenedHomeEntry] = useState<string | null>(null);
   const [homeReturn, setHomeReturn] = useState<{
     taskId: import("@goat/contracts").ChannelTaskId;
@@ -610,6 +612,7 @@ function GoatBotChatViewContent({
         <aside aria-label={`${title} work`} className="flex w-88 shrink-0 border-l border-border">
           <GoatBotWorkPanel
             key={homeKey}
+            store={homeStore}
             environmentId={bot.environmentId}
             threadId={bot.threadId}
             onDraft={onDraft}
@@ -648,6 +651,7 @@ function GoatBotChatViewContent({
             <SheetTitle className="sr-only">{title} work</SheetTitle>
             <GoatBotWorkPanel
               key={homeKey}
+              store={homeStore}
               environmentId={bot.environmentId}
               threadId={bot.threadId}
               onDraft={onDraft}
