@@ -54,7 +54,8 @@ environment. Set any variables it needs with `opencode service set env <name> <v
 
 GOAT does not restart any other server, including the background service
 reached through `localhost`. That server can still report the previous version
-until you restart it.
+until you restart it. For a loopback URL, GOAT shows that restart requirement
+instead of treating the CLI update as a failure.
 
 GOAT waits for a local server it started to recover after a lost connection.
 You can stop the turn while it reconnects. If the server exits or an external
