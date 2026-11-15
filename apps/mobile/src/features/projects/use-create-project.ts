@@ -4,6 +4,7 @@ import {
   findExistingAddProject,
 } from "@goat/client-runtime/operations/projects";
 import type { EnvironmentConnectionPhase } from "@goat/client-runtime/connection";
+import { sourceControlClients } from "@goat/client-runtime/source-control-clients";
 import { inferProjectTitleFromPath } from "@goat/client-runtime/state/projects";
 import {
   AuthOrchestrationOperateScope,
@@ -87,15 +88,76 @@ export async function draftWithPrompt(
   return draftId;
 }
 
-export function useCreateProject(environment: EnvironmentOption | null) {
+export function useOpenExistingProject(environment: EnvironmentOption | null) {
   const openNewTaskDraft = useOpenNewTaskDraft();
-  const navigation = useNavigation();
-  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const updateProject = useAtomCommand(projectEnvironment.update, {
     label: "project unarchive",
   });
   const projects = useProjects();
-  return async (workspaceRoot: string, originRoute = getActiveRoute(navigation)) => {
+
+  return async (
+    path: string,
+    originRoute: ReturnType<typeof getActiveRoute>,
+    clone?: { readonly remoteUrl: string; readonly prompt: string | null },
+  ): Promise<boolean> => {
+    if (!environment) return false;
+    const existing = findExistingAddProject({
+      projects,
+      environmentId: environment.environmentId,
+      path,
+    });
+    if (!existing) return false;
+    // A folder holding another repository is not this clone; let the clone report it occupied.
+    if (
+      clone &&
+      existing.repositoryIdentity?.canonicalKey !==
+        sourceControlClients.repositoryKeyFromRemote(clone.remoteUrl)
+    ) {
+      return false;
+    }
+    const prompt = clone?.prompt;
+    // Adding an archived project's folder again brings the project back.
+    const unarchived =
+      existing.archivedAt == null ||
+      (
+        await updateProject({
+          environmentId: existing.environmentId,
+          input: { projectId: existing.id, archived: false },
+        })
+      )._tag === "Success";
+    Dialog.alert(
+      "Project already exists",
+      unarchived ? existing.title : `${existing.title} is still archived. Try again later.`,
+    );
+    openNewTaskDraft(
+      {
+        environmentId: existing.environmentId,
+        projectId: existing.id,
+        title: existing.title,
+        ...(prompt
+          ? await draftWithPrompt(existing.environmentId, existing.id, prompt).then(
+              (draftId) => ({ draftId }),
+              () => ({}),
+            )
+          : {}),
+      },
+      originRoute,
+    );
+    return true;
+  };
+}
+
+export function useCreateProject(environment: EnvironmentOption | null) {
+  const openNewTaskDraft = useOpenNewTaskDraft();
+  const navigation = useNavigation();
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const openExistingProject = useOpenExistingProject(environment);
+
+  return async (
+    workspaceRoot: string,
+    originRoute = getActiveRoute(navigation),
+    lookupPath = workspaceRoot,
+  ) => {
     if (
       !environment ||
       !canCreateProjectInEnvironment(environment.connectionState) ||
@@ -107,33 +169,7 @@ export function useCreateProject(environment: EnvironmentOption | null) {
       );
       return;
     }
-    const existing = findExistingAddProject({
-      projects,
-      environmentId: environment.environmentId,
-      path: workspaceRoot,
-    });
-    if (existing) {
-      // Adding an archived project's folder again brings the project back.
-      const unarchived =
-        existing.archivedAt == null ||
-        (
-          await updateProject({
-            environmentId: existing.environmentId,
-            input: { projectId: existing.id, archived: false },
-          })
-        )._tag === "Success";
-      Dialog.alert(
-        "Project already exists",
-        unarchived ? existing.title : `${existing.title} is still archived. Try again later.`,
-      );
-      openNewTaskDraft(
-        {
-          environmentId: existing.environmentId,
-          projectId: existing.id,
-          title: existing.title,
-        },
-        originRoute,
-      );
+    if (await openExistingProject(lookupPath, originRoute)) {
       return;
     }
     const projectId = ProjectId.make(uuidv4());

@@ -82,6 +82,7 @@ import {
   getActiveRoute,
   useCreateProject,
   useOpenNewTaskDraft,
+  useOpenExistingProject,
   type EnvironmentOption,
 } from "./use-create-project";
 
@@ -1015,8 +1016,9 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
     environment?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
+  const navigation = useNavigation();
   const createProject = useCreateProject(environment);
-  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
+  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput, resolveHomePath } =
     useBrowsePathInput(environment);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1033,7 +1035,11 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
       return;
     }
     setIsSubmitting(true);
-    const result = await createProject(resolved.path);
+    const originRoute = getActiveRoute(navigation);
+    const lookupPath = resolved.path.startsWith("~")
+      ? await resolveHomePath(resolved.path)
+      : resolved.path;
+    const result = await createProject(resolved.path, originRoute, lookupPath);
     if (result && AsyncResult.isFailure(result)) {
       setError(errorMessage(Cause.squash(result.cause)));
     }
@@ -1103,11 +1109,9 @@ export function AddProjectDestinationScreen(props: {
       ? getCloneDirectoryPath(remoteUrl, true, repositoryName)
       : null;
   const cloneDirectoryName = ghqDirectoryPath?.split("/").at(-1) ?? repositoryName;
-  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } = useBrowsePathInput(
-    environment,
-    cloneDirectoryName,
-    ghqDirectoryPath ?? repositoryName,
-  );
+  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput, resolveHomePath } =
+    useBrowsePathInput(environment, cloneDirectoryName, ghqDirectoryPath ?? repositoryName);
+  const openExistingProject = useOpenExistingProject(environment);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitPath = async () => {
@@ -1133,6 +1137,15 @@ export function AddProjectDestinationScreen(props: {
     }
     const originRoute = getActiveRoute(navigation);
     setIsSubmitting(true);
+    if (
+      await openExistingProject(await resolveHomePath(resolved.path), originRoute, {
+        remoteUrl,
+        prompt: prompt ?? null,
+      })
+    ) {
+      setIsSubmitting(false);
+      return;
+    }
     if (environment.supportsCloneTracking) {
       const projectId = ProjectId.make(uuidv4());
       const title = inferProjectTitleFromPath(resolved.path);
