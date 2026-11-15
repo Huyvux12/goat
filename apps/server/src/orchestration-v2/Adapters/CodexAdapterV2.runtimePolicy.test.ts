@@ -36,6 +36,8 @@ describe("CodexAdapterV2 runtime policy", () => {
               },
             });
             assert.equal(params.effort, reasoningEffort);
+            // Some Responses providers reject `detailed`; `auto` is the most detailed a model supports.
+            assert.equal(params.summary, "auto");
             const context = params.additionalContext;
             assert.deepInclude(context, buildCodexDevelopmentContext());
             for (const key of mcpKeys) {

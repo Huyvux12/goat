@@ -36,6 +36,7 @@ import {
   withReplayRequestId,
 } from "./CodexAdapterV2.testkit.ts";
 import { codexReplayPreamble } from "./CodexAdapterV2.replay.testkit.ts";
+import { withConfigReads } from "./CodexReplay.testkit.ts";
 
 const layerAdapterTest = Layer.mergeAll(
   MemoryDerivedCache.layer,
@@ -59,7 +60,7 @@ describe("CodexAdapterV2 session initialize", () => {
   ) =>
     Effect.gen(function* () {
       const driver = yield* CodexReplay.makeReplayDriver(
-        transcript,
+        withConfigReads(transcript),
         beforeEmitInbound === undefined ? {} : { beforeEmitInbound },
       );
       let initializeRequests = 0;

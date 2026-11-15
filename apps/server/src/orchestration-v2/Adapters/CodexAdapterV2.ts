@@ -795,7 +795,7 @@ export const CODEX_THREAD_CONFIG = {
   ...codexThreadMcpEnvironment(undefined),
   "tools.update_plan.enabled": true,
   mcp_optional_startup_grace_ms: 10_000,
-  // Tool calls stop waiting on the detailed reasoning summary. Codex applies it only to its
+  // Tool calls stop waiting on the reasoning summary. Codex applies it only to its
   // built-in OpenAI provider and sends each summary section whole, not as token deltas.
   "features.concurrent_reasoning_summaries": true,
 } as const;
@@ -6759,28 +6759,41 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               ...(yield* Ref.get(settledTurns)),
               ...(yield* Ref.get(activeTurns)),
             ]);
+            // Read only once this is a start: a steer sends no turn/start to carry the summary.
+            const configuredReasoningSummary = yield* client
+              .request("config/read", { cwd: turnInput.runtimePolicy.cwd, includeLayers: false })
+              .pipe(
+                Effect.map((response) => response.config.model_reasoning_summary ?? undefined),
+                Effect.catch(() =>
+                  Effect.logDebug("Codex config read failed.").pipe(Effect.as(undefined)),
+                ),
+              );
             const started = yield* client
-              .requestTurnStart(turnStartParams, (turnId) =>
-                Effect.gen(function* () {
-                  const owner =
-                    (yield* Ref.get(activeTurns)).get(turnId) ??
-                    (yield* Ref.get(settledTurns)).get(turnId);
-                  // A newer start on this thread folds its input into this turn and adopts it.
-                  const retry = (yield* Ref.get(pendingRootTurns)).get(threadId);
-                  if (
-                    (owner !== undefined && owner.input.attemptId !== turnInput.attemptId) ||
-                    (retry !== undefined && retry.attemptId !== turnInput.attemptId)
-                  )
-                    return;
-                  yield* client.request("turn/interrupt", { threadId, turnId }).pipe(
-                    Effect.catch((cause) =>
-                      Effect.logWarning("orchestration-v2.codex-deadline-turn-stop-failed", {
-                        cause,
-                      }),
-                    ),
-                    Effect.forkIn(scope),
-                  );
-                }),
+              .requestTurnStart(
+                configuredReasoningSummary === undefined
+                  ? turnStartParams
+                  : { ...turnStartParams, summary: configuredReasoningSummary },
+                (turnId) =>
+                  Effect.gen(function* () {
+                    const owner =
+                      (yield* Ref.get(activeTurns)).get(turnId) ??
+                      (yield* Ref.get(settledTurns)).get(turnId);
+                    // A newer start on this thread folds its input into this turn and adopts it.
+                    const retry = (yield* Ref.get(pendingRootTurns)).get(threadId);
+                    if (
+                      (owner !== undefined && owner.input.attemptId !== turnInput.attemptId) ||
+                      (retry !== undefined && retry.attemptId !== turnInput.attemptId)
+                    )
+                      return;
+                    yield* client.request("turn/interrupt", { threadId, turnId }).pipe(
+                      Effect.catch((cause) =>
+                        Effect.logWarning("orchestration-v2.codex-deadline-turn-stop-failed", {
+                          cause,
+                        }),
+                      ),
+                      Effect.forkIn(scope),
+                    );
+                  }),
               )
               .pipe(Effect.tapError(() => Effect.sync(start.failed)));
             start.answered(started.turn.id);

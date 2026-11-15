@@ -34,6 +34,7 @@ import {
   makeCodexReplayTranscript,
   makeCodexReplayTurn,
 } from "./CodexReplay.testkit.ts";
+import { withConfigReads } from "./CodexReplay.testkit.ts";
 export const layerAdapterTest = Layer.mergeAll(
   MemoryDerivedCache.layer,
   IdAllocator.layer,
@@ -154,7 +155,7 @@ const openReplay = Effect.fn("CodexComputerUseTest.openReplay")(function* (
       },
     });
   };
-  const driver = yield* CodexReplay.makeReplayDriver(transcript);
+  const driver = yield* CodexReplay.makeReplayDriver(withConfigReads(transcript));
   const threadConfigs: Array<Record<string, unknown>> = [];
   const requests: Array<string> = [];
   // Each turn/interrupt the adapter sends, by turn, for tests that await one sent in the background.

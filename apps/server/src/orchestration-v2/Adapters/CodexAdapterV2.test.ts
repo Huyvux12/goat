@@ -96,6 +96,7 @@ import {
 } from "./CodexAdapterV2.replay.testkit.ts";
 import * as CodexAdapterV2Testkit from "./CodexAdapterV2.testkit.ts";
 import { GOAT_MEMORY_TOOLS } from "./CodexAdapterV2.attachment.testkit.ts";
+import { withConfigReads } from "./CodexReplay.testkit.ts";
 
 const layerAdapterTest = Layer.mergeAll(
   MemoryDerivedCache.layer,
@@ -1252,7 +1253,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 approvalPolicy: "never",
                 approvalsReviewer: "user",
                 sandboxPolicy: { type: "dangerFullAccess" },
-                summary: "detailed",
+                summary: "auto",
               },
             },
           },
@@ -2356,7 +2357,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 cwd: "/workspace",
                 model: "gpt-5.4",
                 ...turnPolicies[turnModes[index]!],
-                summary: "detailed",
+                summary: "auto",
                 collaborationMode: { mode: "default", settings: { model: "gpt-5.4" } },
               },
             },
@@ -3082,7 +3083,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                   approvalPolicy: "never",
                   approvalsReviewer: "user",
                   sandboxPolicy: { type: "dangerFullAccess" },
-                  summary: "detailed",
+                  summary: "auto",
                 },
               },
             },
@@ -4285,7 +4286,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             yield* encodeStringJson(cwd),
           ),
         );
-        const replayDriver = yield* CodexReplay.makeReplayDriver(localTranscript);
+        const replayDriver = yield* CodexReplay.makeReplayDriver(withConfigReads(localTranscript));
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         assert.equal(Number(yield* spawner.exitCode(gitCommand(cwd, ["init", "--quiet"]))), 0);
         assert.equal(
@@ -4501,7 +4502,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           Effect.provide(
             ProviderReplayHarness.layerWithRegistry(
               { name: "codex-background-stop-untracked", runtimePolicyOverride: { cwd } },
-              CodexAdapterV2Testkit.layer({ transcript: localTranscript }),
+              CodexAdapterV2Testkit.layer({ transcript: withConfigReads(localTranscript) }),
               { runEffectWorker: false },
             ),
           ),
@@ -5212,7 +5213,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             approvalPolicy: "never",
             approvalsReviewer: "user",
             sandboxPolicy: { type: "dangerFullAccess" },
-            summary: "detailed",
+            summary: "auto",
           },
         },
       },
@@ -9540,10 +9541,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           },
         });
         const driver = yield* CodexReplay.makeReplayDriver(
-          makeCodexReplayTranscript({
-            scenario: "mcp-config-normalization",
-            entries,
-          }),
+          withConfigReads(
+            makeCodexReplayTranscript({
+              scenario: "mcp-config-normalization",
+              entries,
+            }),
+          ),
         );
         yield* Effect.gen(function* () {
           const client = yield* CodexClient.CodexAppServerClient;

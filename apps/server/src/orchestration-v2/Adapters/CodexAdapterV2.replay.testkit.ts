@@ -28,6 +28,7 @@ import {
   makeCodexReplayTranscript,
   makeCodexReplayTurn,
 } from "./CodexReplay.testkit.ts";
+import { withConfigReads } from "./CodexReplay.testkit.ts";
 
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
 
@@ -119,7 +120,7 @@ export const makeCodexReplayHarness = (
         Effect.gen(function* () {
           processEnvironment = openInput.environment;
           const driver = yield* CodexReplay.makeReplayDriver(
-            transcript,
+            withConfigReads(transcript),
             beforeEmitInbound ? { beforeEmitInbound } : {},
           );
           const client = Layer.build(CodexReplay.layerReplayWithDriver(driver));

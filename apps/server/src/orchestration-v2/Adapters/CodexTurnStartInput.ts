@@ -25,4 +25,6 @@ export interface CodexTurnStartInput {
   readonly clearMemoryContext?: boolean;
   /** What the thread's MCP Apps want the agent to know (`ui/update-model-context`). */
   readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
+  /** The user's `model_reasoning_summary` from the Codex config, when set. */
+  readonly configuredReasoningSummary?: CodexSchema.V2TurnStartParams__ReasoningSummary;
 }

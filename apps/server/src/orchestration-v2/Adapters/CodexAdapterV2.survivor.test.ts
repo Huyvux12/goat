@@ -32,6 +32,7 @@ import {
   codexReplayPreamble,
   makeCodexReplayTranscript,
   makeCodexReplayTurn,
+  withConfigReads,
 } from "./CodexReplay.testkit.ts";
 import {
   CODEX_TEST_MODEL_SELECTION,
@@ -106,7 +107,7 @@ const runScenario = (
         prompt: "unused",
       }).slice(0, 3),
     });
-    const driver = yield* CodexReplay.makeReplayDriver(transcript);
+    const driver = yield* CodexReplay.makeReplayDriver(withConfigReads(transcript));
     const requests: string[] = [];
     const notifications = new Map<string, Array<(payload: unknown) => Effect.Effect<void>>>();
     const stopMode = mode.startsWith("stop-");
