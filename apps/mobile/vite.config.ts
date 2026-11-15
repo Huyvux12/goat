@@ -29,6 +29,7 @@ const reactTests = [
   "src/components/ui/SplitButton.android.test.tsx",
   "src/components/ProjectFavicon.test.tsx",
   "src/features/files/useFileTreeEntries.test.tsx",
+  "src/features/home/home-route-visibility.test.tsx",
   "src/features/files/FileSourceSurface.test.tsx",
   "src/features/files/ZipArchiveView.test.tsx",
   "src/lib/clock.test.ts",

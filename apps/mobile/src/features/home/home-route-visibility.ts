@@ -15,8 +15,10 @@ export function useHomeRouteVisible(): boolean {
     const removeTransitionStart = navigation.addListener("transitionStart", ({ data }) => {
       if (!data.closing) show();
     });
+    // Each iOS tab slot shows its own copy of the Home route, and the slot a tab switch leaves
+    // disappears last. So a disappear hides Home only when another route has the focus.
     const removeTransitionEnd = navigation.addListener("transitionEnd", ({ data }) => {
-      if (data.closing) setVisible(false);
+      if (data.closing && !navigation.isFocused()) setVisible(false);
     });
     // Popping a sheet or a deep-linked route above Home has no appear event.
     const removeFocus = navigation.addListener("focus", show);
