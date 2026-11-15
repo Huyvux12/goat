@@ -21,12 +21,14 @@ export const instanceCredentials = (input: {
     (own("CURSOR_API_ENDPOINT") ? environment.CURSOR_API_ENDPOINT : undefined);
   const ownEndpoint =
     endpoint !== undefined && !sameCursorBackend(endpoint, server.CURSOR_API_ENDPOINT);
+  // A token or login is the server's, for its backend and usage endpoint alike.
+  const ownDestination = ownBackend || ownEndpoint;
   return {
     /** CURSOR_API_KEY to use, before falling back to the instance's own GOAT sign-in. */
     environmentKey: ownBackend && !own("CURSOR_API_KEY") ? undefined : environment.CURSOR_API_KEY,
     usageToken:
-      ownEndpoint && !own("CURSOR_AUTH_TOKEN") ? undefined : environment.CURSOR_AUTH_TOKEN,
+      ownDestination && !own("CURSOR_AUTH_TOKEN") ? undefined : environment.CURSOR_AUTH_TOKEN,
     /** Whether the server's CLI or Keychain login may be read for usage. */
-    serverLogins: !ownEndpoint,
+    serverLogins: !ownDestination,
   };
 };

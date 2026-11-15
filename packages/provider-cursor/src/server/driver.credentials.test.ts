@@ -263,6 +263,15 @@ it.layer(layerTest)("CursorDriver credentials and environment", (it) => {
         yield* check("cursor-own-backend", { CURSOR_API_KEY: "server-key" }, [
           { name: "CURSOR_BACKEND_URL", value: "https://private.invalid", sensitive: false },
         ]);
+        // The server's token belongs to its private backend; the instance chose Cursor's.
+        yield* check(
+          "cursor-back-to-production",
+          { CURSOR_AUTH_TOKEN: "server-token", CURSOR_BACKEND_URL: "https://private.invalid" },
+          [
+            { name: "CURSOR_BACKEND_URL", value: "https://api2.cursor.sh", sensitive: false },
+            { name: "CURSOR_API_KEY", value: "instance-key", sensitive: true },
+          ],
+        );
         expect(sent.filter((line) => /server-(token|key)/.test(line))).toEqual([]);
       }).pipe(Effect.scoped),
   );

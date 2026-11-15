@@ -7,6 +7,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as HostProcess from "@goat/shared/HostProcess";
 
 import * as CursorAccountReader from "./CursorAccountReader.ts";
 import * as CursorUsageAccounts from "./CursorUsageAccounts.ts";
@@ -295,4 +296,52 @@ describe("CursorUsageAccounts", () => {
       ),
     );
   });
+
+  it.effect(
+    "does not exchange the server's key for an instance that left the server's backend",
+    () => {
+      const read: Array<unknown> = [];
+      const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+        read: (credentialSource) =>
+          Effect.sync(() => {
+            read.push(credentialSource);
+            return { accountKey: null, records: [], missing: true, error: null };
+          }),
+      });
+      const server = {
+        CURSOR_API_KEY: "server-key",
+        CURSOR_BACKEND_URL: "https://private.invalid",
+      };
+      return Effect.gen(function* () {
+        const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+        yield* accounts.scan({
+          instances: [
+            {
+              instanceId: ProviderInstanceId.make("cursor-left-server-backend"),
+              // Inherits the server's key, names Cursor's backend itself.
+              environment: { ...server, CURSOR_BACKEND_URL: "https://api2.cursor.sh" },
+            },
+          ],
+          keychainUsageEnabled: true,
+          windowStartMs: 0,
+          retentionCutoffMs: 0,
+          awaitRefresh: true,
+        });
+        assert.deepStrictEqual(
+          read.filter(
+            (source) => typeof source === "object" && source !== null && "apiKey" in source,
+          ),
+          [],
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.provideMerge(
+            CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+            Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+          ),
+        ),
+        Effect.provideService(HostProcess.Environment, server),
+      );
+    },
+  );
 });

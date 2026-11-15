@@ -302,7 +302,13 @@ const make = Effect.gen(function* () {
           !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
             ? Effect.succeed("excluded")
             : environment.CURSOR_API_KEY?.trim()
-              ? Effect.succeed({ apiKey: environment.CURSOR_API_KEY.trim() })
+              ? Effect.succeed(
+                  // The server's own key belongs to the server's backend.
+                  environment.CURSOR_API_KEY.trim() === hostEnvironment.CURSOR_API_KEY?.trim() &&
+                    !exchangesAtCursor(hostEnvironment.CURSOR_BACKEND_URL)
+                    ? "excluded"
+                    : { apiKey: environment.CURSOR_API_KEY.trim() },
+                )
               : readStoredCursorSignIn(instanceId).pipe(
                   Effect.provideService(ProviderHost.ProviderHost, host),
                   Effect.map((signIn): InstanceCredential =>
