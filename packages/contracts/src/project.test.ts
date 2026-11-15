@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 
 import {
+  ProjectListIgnoredFilesInput,
   ProjectFaviconPath,
   ReceivedProjectIcon,
   StoredProjectIcon,
@@ -275,3 +276,10 @@ effectIt.effect("a project shell decodes with or without hasCustomTitle across v
     assert.notProperty(yield* decodeOlderProjectShell(fromNewerServer), "hasCustomTitle");
   }),
 );
+
+it("keeps ignored-file listing compatible with old clients and bounds search", () => {
+  const decode = Schema.decodeUnknownSync(ProjectListIgnoredFilesInput);
+  expect(decode({ cwd: "/repo" })).toEqual({ cwd: "/repo" });
+  expect(decode({ cwd: "/repo", query: "config" })).toEqual({ cwd: "/repo", query: "config" });
+  expect(() => decode({ cwd: "/repo", query: "x".repeat(257) })).toThrow();
+});
