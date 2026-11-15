@@ -150,7 +150,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
         <Pressable
           ref={setAnchorNode}
           accessibilityRole="button"
-          accessibilityState={{ expanded: anchor !== null }}
+          accessibilityState={{ expanded: placeable }}
           className={props.className}
           collapsable={false}
           style={props.style}
