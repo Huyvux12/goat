@@ -645,6 +645,20 @@ export const make = Effect.gen(function* () {
     return `path:${normalizeProjectPathForComparison(realPath)}`;
   });
 
+  /** Stats a directory that may be offered as a project, or none when it is missing or excluded. */
+  const projectDirectoryStats = Effect.fn("AgentSessionScanner.projectDirectoryStats")(function* (
+    directory: string,
+  ) {
+    if (isExcludedProjectPath(directory)) return Option.none<FileSystem.File.Info>();
+    const stats = yield* statOption(directory);
+    if (Option.isNone(stats) || stats.value.type !== "Directory") return Option.none();
+    const realPath = yield* fileSystem
+      .realPath(directory)
+      .pipe(Effect.orElseSucceed(() => directory));
+    // Symlinks can disguise excluded worktree paths; re-check their targets.
+    return isExcludedProjectPath(realPath) ? Option.none() : stats;
+  });
+
   const readGitIdentities = makeGitIdentityReader({
     fileSystem,
     processRunner,
@@ -1313,17 +1327,8 @@ export const make = Effect.gen(function* () {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
-      if (directories.has(resolved) || isExcludedProjectPath(resolved)) continue;
-      const stats = yield* statOption(resolved);
-      if (Option.isNone(stats) || stats.value.type !== "Directory") {
-        directories.set(resolved, Option.none());
-        continue;
-      }
-      const realPath = yield* fileSystem
-        .realPath(resolved)
-        .pipe(Effect.orElseSucceed(() => resolved));
-      // Symlinks can disguise excluded worktree paths; re-check their targets.
-      directories.set(resolved, isExcludedProjectPath(realPath) ? Option.none() : stats);
+      if (directories.has(resolved)) continue;
+      directories.set(resolved, yield* projectDirectoryStats(resolved));
     }
     const directoryGitIdentities = yield* readGitIdentities(
       Array.from(directories).flatMap(([directory, stats]) =>
@@ -1331,8 +1336,14 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-    const directoryKeys = new Map<string, string>();
-    const gitIdentities = new Map<string, AgentSessionProjectGit | null>();
+    const directoryProjects = new Map<
+      string,
+      {
+        readonly key: string;
+        readonly path: string;
+        readonly git: AgentSessionProjectGit | null;
+      } | null
+    >();
 
     for (const candidate of ScanCompatibility.filterCandidates(input, raw)) {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
@@ -1340,28 +1351,44 @@ export const make = Effect.gen(function* () {
       const resolved = path.resolve(expanded);
       const stats = directories.get(resolved);
       if (stats === undefined || Option.isNone(stats)) continue;
-      let key = directoryKeys.get(resolved);
-      if (key === undefined) {
+      let project = directoryProjects.get(resolved);
+      if (project === undefined) {
         const gitIdentity = directoryGitIdentities.get(resolved);
-        if (gitIdentity === undefined || gitIdentity._tag === "Worktree") {
-          key = "";
+        if (gitIdentity === undefined) {
+          project = null;
+        } else if (gitIdentity._tag === "Worktree") {
+          // A linked worktree's sessions count toward its main checkout's project.
+          const { mainCheckout } = gitIdentity;
+          const mainStats =
+            mainCheckout === null ? Option.none() : yield* projectDirectoryStats(mainCheckout);
+          project =
+            mainCheckout !== null && Option.isSome(mainStats)
+              ? {
+                  key: yield* directoryIdentity(mainCheckout, mainStats.value),
+                  path: mainCheckout,
+                  git: gitIdentity.git,
+                }
+              : null;
         } else {
-          key = yield* directoryIdentity(resolved, stats.value);
-          gitIdentities.set(key, gitIdentity._tag === "Repository" ? gitIdentity.git : null);
+          project = {
+            key: yield* directoryIdentity(resolved, stats.value),
+            path: resolved,
+            git: gitIdentity._tag === "Repository" ? gitIdentity.git : null,
+          };
         }
-        directoryKeys.set(resolved, key);
+        directoryProjects.set(resolved, project);
       }
-      if (key === "") continue;
+      if (project === null) continue;
       const threadCount = countCandidateThreadsInWindow(candidate, cutoffMs, nowMs);
 
-      const existing = merged.get(key);
+      const existing = merged.get(project.key);
       if (!existing) {
-        merged.set(key, {
-          path: resolved,
+        merged.set(project.key, {
+          path: project.path,
           sources: [candidate.source],
           threadCount,
           lastActiveAtMs: candidate.lastActiveAtMs,
-          git: gitIdentities.get(key) ?? null,
+          git: project.git,
         });
         continue;
       }

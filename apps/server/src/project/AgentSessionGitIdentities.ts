@@ -13,7 +13,11 @@ import { sourceControlDefinitions } from "../sourceControl/sourceControlDefiniti
 
 export type AgentSessionGitIdentity =
   | { readonly _tag: "Repository"; readonly git: AgentSessionProjectGit | null }
-  | { readonly _tag: "Worktree" }
+  | {
+      readonly _tag: "Worktree";
+      readonly mainCheckout: string | null;
+      readonly git: AgentSessionProjectGit | null;
+    }
   | { readonly _tag: "NotGit" };
 
 /** open() of a file under macOS privacy protection waits on a consent prompt that a headless server never gets. */
@@ -118,8 +122,9 @@ export function makeGitIdentityReader(input: {
     );
     for (const { directory, gitDir } of linkedWorktrees) {
       const commonDir = (commonDirTexts.get(input.path.join(gitDir, "commondir")) ?? "").trim();
-      if (commonDir.length === 0) identities.set(directory, { _tag: "Worktree" });
-      else
+      if (commonDir.length === 0) {
+        identities.set(directory, { _tag: "Worktree", mainCheckout: null, git: null });
+      } else
         repositories.push({
           directory,
           gitDir: input.path.resolve(gitDir, commonDir),
@@ -132,20 +137,27 @@ export function makeGitIdentityReader(input: {
     );
     for (const { directory, gitDir, linkedWorktree } of repositories) {
       const configText = configTexts.get(input.path.join(gitDir, "config")) ?? "";
+      const originUrl = parseOriginUrlFromGitConfig(configText);
+      const git: AgentSessionProjectGit = {
+        remoteKey:
+          originUrl === null ? null : sourceControlDefinitions.repositoryKeyFromRemote(originUrl),
+        repository: repositoryPathFromRemoteUrl(originUrl),
+      };
       // Bare repositories have no main checkout, so offer their linked worktrees independently.
       if (linkedWorktree && !isBareGitConfig(configText)) {
-        identities.set(directory, { _tag: "Worktree" });
+        identities.set(directory, {
+          _tag: "Worktree",
+          // Only a common dir named .git sits inside its main checkout, and an
+          // unreadable config can't rule out a bare repository.
+          mainCheckout:
+            configText.length > 0 && input.path.basename(gitDir) === ".git"
+              ? input.path.dirname(gitDir)
+              : null,
+          git,
+        });
         continue;
       }
-      const originUrl = parseOriginUrlFromGitConfig(configText);
-      identities.set(directory, {
-        _tag: "Repository",
-        git: {
-          remoteKey:
-            originUrl === null ? null : sourceControlDefinitions.repositoryKeyFromRemote(originUrl),
-          repository: repositoryPathFromRemoteUrl(originUrl),
-        },
-      });
+      identities.set(directory, { _tag: "Repository", git });
     }
     return identities;
   });
