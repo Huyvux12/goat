@@ -232,17 +232,3 @@ it("a refresh holding an older list keeps the chip live until a settled list lac
     .element(screen.getByRole("button", { name: "Open routine Check in" }))
     .not.toBeInTheDocument();
 });
-
-it("a routine chip lands once: after the person moves on, a flip of Home does not land again", async () => {
-  setup({ tasks: [routine("r2", "Daily digest"), routine("r1", "Check in")] });
-  await using screen = await render(view([line("Check in")]));
-  await userEvent.click(screen.getByRole("button", { name: "Open routine Check in" }));
-  await expect.element(page.getByRole("link", { name: /^Check in/ })).toHaveFocus();
-  await userEvent.click(page.getByRole("tab", { name: "Library" }));
-  // The chat view narrows below 752px, so Home moves from its docked panel to its sheet.
-  (screen.container.firstElementChild as HTMLElement).style.width = "700px";
-  await expect.element(page.getByRole("dialog", { name: "GOAT Bot work" })).toBeVisible();
-  await expect
-    .element(page.getByRole("tab", { name: "Library" }))
-    .toHaveAttribute("aria-selected", "true");
-});

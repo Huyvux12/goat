@@ -2,7 +2,7 @@ import { botManageFailure, replaceCreatedBot } from "@goat/client-runtime/goatBo
 import { squashAtomCommandFailure } from "@goat/client-runtime/state/runtime";
 import type { BotProfile } from "@goat/contracts";
 import { modelSelectionsEqual } from "@goat/shared/model";
-import { type ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 
 import { channelEnvironment } from "~/state/channels";
 import { useEnvironment } from "~/state/environments";
@@ -10,7 +10,6 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { GoatBotModelField } from "./GoatBotModelField";
 import { GoatBotProfileDialog } from "./GoatBotProfileDialog";
 import { useGoatBotMainName } from "./goatBotMemberContext";
-import { useGoatBotHomeState } from "./goatBotHomeState";
 
 /** Edits a bot's profile, and a member's model where its server takes one. */
 export function GoatBotEditBotDialog({
@@ -28,7 +27,7 @@ export function GoatBotEditBotDialog({
   const mainName = useGoatBotMainName();
   const modelEditable = useGoatBotMemberModelEditable(bot);
   const colorEditable = useGoatBotMemberColorEditable(bot);
-  const [model, setModel] = useGoatBotHomeState("input:editBot:model", bot.defaultModelSelection);
+  const [model, setModel] = useState(bot.defaultModelSelection);
   const modelChanged = modelEditable && !sameModel(model, bot.defaultModelSelection);
   return (
     <GoatBotProfileDialog

@@ -22,7 +22,6 @@ import { GoatBotCheckInForm } from "./GoatBotCheckInForm";
 import { useGoatBotName } from "./goatBotMemberContext";
 import { GoatBotPanelEmpty, GoatBotPanelFailure } from "./GoatBotPanelEmpty";
 import { GoatBotCardRow, GoatBotCardSkeleton, GoatBotShowMoreRow } from "./GoatBotSectionCard";
-import { useGoatBotHomeState } from "./goatBotHomeState";
 
 /** What New routine puts in the message box: the person finishes the sentence. */
 const NEW_ROUTINE_DRAFT = "Set up a routine: ";
@@ -62,18 +61,17 @@ export function GoatBotRoutines(props: {
 }) {
   const nowMinute = useNowMinute();
   const botName = useGoatBotName();
-  const [shownAll, setShowAll] = useGoatBotHomeState("position:routinesShowAll", false);
-  // A chip naming a routine behind Show more opens the list first, so its row exists to land on;
-  // the row keeps it open once it takes focus.
+  const [showAll, setShowAll] = useState(false);
+  // A chip naming a routine behind Show more opens the list first, so its row exists to land on.
   const landingHidden =
     props.focusRoutineId !== null &&
     props.focusRoutineId !== undefined &&
     props.tasks !== null &&
-    !shownAll &&
+    !showAll &&
     botRoutineRows(props.tasks, props.threadId, Date.parse(`${nowMinute}:00.000Z`))
       .slice(COLLAPSED_ROUTINES)
       .some((row) => row.id === props.focusRoutineId);
-  const showAll = shownAll || landingHidden;
+  if (landingHidden) setShowAll(true);
   const denied =
     typeof props.failure === "object" &&
     props.failure !== null &&
@@ -129,19 +127,12 @@ export function GoatBotRoutines(props: {
           key={row.id}
           environmentId={props.environmentId}
           row={row}
-          onFocused={
-            row.id === props.focusRoutineId
-              ? () => {
-                  if (landingHidden) setShowAll(true);
-                  props.onRoutineFocused?.();
-                }
-              : undefined
-          }
+          onFocused={row.id === props.focusRoutineId ? props.onRoutineFocused : undefined}
           mayFocus={props.routineMayFocus}
         />
       ))}
       {hidden > 0 ? (
-        <GoatBotShowMoreRow expanded={showAll} onToggle={() => setShowAll(!showAll)} />
+        <GoatBotShowMoreRow expanded={showAll} onToggle={() => setShowAll((value) => !value)} />
       ) : null}
     </div>
   );
@@ -154,7 +145,7 @@ function CheckInOffer(props: {
   const canCreate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(props.environmentId),
   );
-  const [open, setOpen] = useGoatBotHomeState("input:checkIn:open", false);
+  const [open, setOpen] = useState(false);
   if (!canCreate) return null;
   if (open)
     return (

@@ -1,5 +1,5 @@
 import { botProfileChanges, type BotProfileValues } from "@goat/client-runtime/state/channels";
-import { useRef, type ComponentProps, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 
 import { Button } from "../ui/button";
 import {
@@ -14,7 +14,6 @@ import {
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { GoatBotColorField } from "./GoatBotColorField";
-import { useGoatBotHomeState } from "./goatBotHomeState";
 
 export type GoatBotProfileChanges = Partial<BotProfileValues>;
 
@@ -38,27 +37,16 @@ export function GoatBotProfileDialog(props: {
   readonly colorEditable?: boolean;
   readonly finalFocus?: ComponentProps<typeof DialogPopup>["finalFocus"];
 }) {
-  // Inside Home this is Edit bot, kept in Home's store so a flip neither drops a draft nor lets a
-  // save still out be sent again; elsewhere these are plain state.
-  const [name, setName] = useGoatBotHomeState(
-    "input:editBot:name",
-    props.draftName ?? props.initial.name,
-  );
-  const [avatar, setAvatar] = useGoatBotHomeState(
-    "input:editBot:avatar",
-    props.initial.avatar ?? "",
-  );
-  const [purpose, setPurpose] = useGoatBotHomeState("input:editBot:purpose", props.initial.purpose);
-  const [color, setColor] = useGoatBotHomeState<string | null>(
-    "input:editBot:color",
-    props.initial.color ?? null,
-  );
-  const [busy, setBusy] = useGoatBotHomeState("input:editBot:busy", false);
-  const [error, setError] = useGoatBotHomeState<string | null>("input:editBot:error", null);
+  const [name, setName] = useState(props.draftName ?? props.initial.name);
+  const [avatar, setAvatar] = useState(props.initial.avatar ?? "");
+  const [purpose, setPurpose] = useState(props.initial.purpose);
+  const [color, setColor] = useState<string | null>(props.initial.color ?? null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const blankName = name.trim() === "";
   // A missing name is pointed out once the person leaves the field or saves, not while they start.
-  const [nameChecked, setNameChecked] = useGoatBotHomeState("input:editBot:nameChecked", false);
-  const [nameEdited, setNameEdited] = useGoatBotHomeState("input:editBot:nameEdited", false);
+  const [nameChecked, setNameChecked] = useState(false);
+  const [nameEdited, setNameEdited] = useState(false);
   const nameMissing = blankName && nameChecked;
   const nameRef = useRef<HTMLInputElement>(null);
 

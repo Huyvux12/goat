@@ -13,7 +13,7 @@ import {
   noteDateLabel,
 } from "@goat/client-runtime/goatBot";
 import type { ChannelBotNote, EnvironmentId } from "@goat/contracts";
-import { useEffect, useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { channelEnvironment } from "~/state/channels";
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -23,7 +23,6 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { useGoatBotMember, useGoatBotName } from "./goatBotMemberContext";
 import { GoatBotPanelEmpty } from "./GoatBotPanelEmpty";
-import { useGoatBotHomeState } from "./goatBotHomeState";
 import { HoldsNavigation } from "~/lib/navigationHolds";
 
 /** GOAT Bot's notes, read only; changing or forgetting one is a message the person sends. */
@@ -98,7 +97,7 @@ function NoteList({
   const botName = useGoatBotName();
   const view = goatBotNotesView({ notes, truncated });
   const heldBack = goatBotNotesHeldBack({ notes, truncated });
-  const [showReplaced, setShowReplaced] = useGoatBotHomeState("position:showReplaced", false);
+  const [showReplaced, setShowReplaced] = useState(false);
   const replacedId = useId();
   // The minute tick is UTC without an offset, and Date.parse reads that form as local time.
   const now = Date.parse(`${useNowMinute()}:00Z`);
@@ -122,7 +121,6 @@ function NoteList({
             // An index is a line's place in this read only, so a new read starts every row over.
             <NoteRow
               key={`${revision}:${note.index}`}
-              entry={`${revision}:${note.index}`}
               note={note}
               heldBack={heldBack.get(note.index)}
               source={goatBotNoteSourceLabel(note.source, { now })}
@@ -172,22 +170,19 @@ function NoteList({
 }
 
 function NoteRow({
-  entry,
   note,
   heldBack,
   source,
   onDraft,
 }: {
-  /** This read's place for the note, which Home keeps a wording under; a new read starts over. */
-  entry: string;
   note: ChannelBotNote;
   /** Why a request naming this note by its words could reach another note, if it could. */
   heldBack: GoatBotNoteHeldBack | undefined;
   source: string | null;
   onDraft: ((text: string) => void) | undefined;
 }) {
-  const [wording, setWording] = useGoatBotHomeState<string | null>(`input:wording:${entry}`, null);
-  const [forgetting, setForgetting] = useGoatBotHomeState(`position:forgetting:${entry}`, false);
+  const [wording, setWording] = useState<string | null>(null);
+  const [forgetting, setForgetting] = useState(false);
   const textId = useId();
   const draft = wording === null ? null : changeNoteDraft(note, wording);
   return (
