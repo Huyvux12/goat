@@ -15,7 +15,13 @@ import {
   openCodexThreadHistory,
   type CodexHistoryThreadRef,
 } from "./CodexThreadHistory.ts";
-import { transcriptIdentity, sameTranscriptIdentity } from "./AgentSessionTranscriptIdentity.ts";
+import {
+  transcriptIdentity,
+  sameTranscriptIdentity,
+  type TranscriptIdentity,
+} from "./AgentSessionTranscriptIdentity.ts";
+import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
+import { importedTranscriptsByFile } from "./AgentSessionImportedTranscripts.ts";
 import * as NodeOS from "node:os";
 
 import {
@@ -210,7 +216,7 @@ interface TranscriptCandidate {
   readonly mtimeMs: number;
   readonly providerInstanceId: ProviderInstanceId;
   readonly homePath: string;
-  readonly size: number;
+  readonly identity: TranscriptIdentity;
 }
 
 interface MetadataReadBudget {
@@ -640,6 +646,7 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
+  const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
   const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   const realWorktreesDir = yield* fileSystem
@@ -706,7 +713,7 @@ export const make = Effect.gen(function* () {
     transcript: TranscriptCandidate,
     budget: MetadataReadBudget,
   ) {
-    if (transcript.size === 0) return null;
+    if (transcript.identity.size === 0) return null;
     if (
       budget.bytesRemaining === 0 ||
       budget.operationsRemaining < 2 ||
@@ -724,7 +731,7 @@ export const make = Effect.gen(function* () {
             let remaining = "";
             let bytesRead = 0;
             let recordsRead = 0;
-            const maxBytes = Math.min(MAX_TRANSCRIPT_SCAN_BYTES, transcript.size);
+            const maxBytes = Math.min(MAX_TRANSCRIPT_SCAN_BYTES, transcript.identity.size);
             const reserveRecord = () => {
               if (
                 recordsRead === MAX_METADATA_RECORDS_PER_TRANSCRIPT ||
@@ -773,7 +780,7 @@ export const make = Effect.gen(function* () {
               }
             }
 
-            if (bytesRead < transcript.size) {
+            if (bytesRead < transcript.identity.size) {
               budget.truncated = true;
               return null;
             }
@@ -951,7 +958,7 @@ export const make = Effect.gen(function* () {
             mtimeMs: stats.value.mtime.value.getTime(),
             providerInstanceId,
             homePath,
-            size: Number(stats.value.size),
+            identity: transcriptIdentity(filePath, stats.value),
           });
         }
       }
@@ -1013,7 +1020,7 @@ export const make = Effect.gen(function* () {
                   mtimeMs: stats.value.mtime.value.getTime(),
                   providerInstanceId,
                   homePath,
-                  size: Number(stats.value.size),
+                  identity: transcriptIdentity(filePath, stats.value),
                 });
               }
             }
@@ -1070,7 +1077,7 @@ export const make = Effect.gen(function* () {
             mtimeMs: stats.value.mtime.value.getTime(),
             providerInstanceId,
             homePath: sessionsDir,
-            size: Number(stats.value.size),
+            identity: transcriptIdentity(filePath, stats.value),
           });
         }
       }
@@ -1082,6 +1089,7 @@ export const make = Effect.gen(function* () {
     source: AgentSessionSource,
     transcripts: ReadonlyArray<TranscriptCandidate>,
     budget: MetadataReadBudget,
+    importedByFile: ReturnType<typeof importedTranscriptsByFile>,
     codexCwdByThread?: ReadonlyMap<string, string>,
   ) {
     const byOwnerAndCwd = new Map<
@@ -1096,7 +1104,18 @@ export const make = Effect.gen(function* () {
     >();
 
     for (const transcript of transcripts) {
-      const metadataCwd = yield* readCwd(source, transcript, budget);
+      // Unchanged imported transcripts keep their import cwd, so they never spend the read budget.
+      // Codex is excluded: its first record carries the cwd and the subagent marker, and
+      // rollouts imported before subagents were skipped must still be excluded by it.
+      const metadataCwd =
+        (source === "codex"
+          ? undefined
+          : importedByFile.get(`${transcript.providerInstanceId}\0${transcript.filePath}`)
+        )?.find(
+          (imported) =>
+            imported.source.provider === source &&
+            sameTranscriptIdentity(imported.source, transcript.identity),
+        )?.cwd ?? (yield* readCwd(source, transcript, budget));
       if (metadataCwd === null || metadataCwd === false) continue;
       const threadId =
         source === "codex" ? codexThreadIdFromRolloutPath(transcript.filePath) : undefined;
@@ -1131,15 +1150,27 @@ export const make = Effect.gen(function* () {
     }));
   });
 
-  let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
+  let cachedCandidates: {
+    readonly candidates: ReadonlyArray<RawCandidate>;
+    readonly metadataTruncated: boolean;
+  } | null = null;
   let cachedCodexCwdByThread: ReadonlyMap<string, string> | null = null;
   const collectCandidates = Effect.fn("AgentSessionScanner.collectCandidates")(function* () {
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
     );
 
+    const runtimeRows = yield* runtimes
+      .list()
+      .pipe(
+        Effect.mapError(
+          (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+        ),
+      );
+    const importedByFile = importedTranscriptsByFile(runtimeRows);
     const raw: Array<RawCandidate> = [];
     let truncated = false;
+    let metadataTruncated = false;
     let collectedCodexCwdByThread: ReadonlyMap<string, string> | null = null;
 
     for (const source of ["claudeAgent", "codex", "pi"] as const) {
@@ -1283,6 +1314,7 @@ export const make = Effect.gen(function* () {
           source,
           selectedTranscripts,
           metadataBudget,
+          importedByFile,
           codexState?.cwdByThread,
         )),
       );
@@ -1303,12 +1335,17 @@ export const make = Effect.gen(function* () {
           ...historyGroups.groups.map((group): RawCandidate => ({ ...group, source: "codex" })),
         );
       }
-      truncated ||= metadataBudget.truncated;
+      metadataTruncated ||= metadataBudget.truncated;
     }
 
-    cachedCandidates = raw;
+    const collected = {
+      candidates: raw,
+      truncated: truncated || metadataTruncated,
+      metadataTruncated,
+    };
+    cachedCandidates = collected;
     cachedCodexCwdByThread = collectedCodexCwdByThread;
-    return { candidates: raw, truncated };
+    return collected;
   });
 
   const scan = Effect.fn("AgentSessionScanner.scan")(function* (input: AgentSessionScanInput) {
@@ -1457,7 +1494,11 @@ export const make = Effect.gen(function* () {
     const windowDays = input.windowDays ?? DEFAULT_AGENT_SESSION_WINDOW_DAYS;
     const cutoffMs = nowMs - windowDays * MS_PER_DAY;
 
-    const candidates = cachedCandidates ?? (yield* collectCandidates()).candidates;
+    // Imports recorded since a budget-truncated collection can free budget for transcripts it cut off.
+    const { candidates } =
+      cachedCandidates === null || cachedCandidates.metadataTruncated
+        ? yield* collectCandidates()
+        : cachedCandidates;
 
     const eligibleTranscripts: Array<{
       readonly candidate: RawCandidate;

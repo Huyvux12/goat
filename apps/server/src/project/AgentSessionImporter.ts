@@ -6,7 +6,6 @@ import {
   DEFAULT_RUNTIME_MODE,
   AgentSessionImportProjectChangedError,
   AgentSessionImportProjectNotFoundError,
-  AgentSessionImportSource,
   AgentSessionScanError,
   AgentSessionSource,
   EventId,
@@ -37,17 +36,12 @@ import * as IdAllocator from "@goat/provider-core/server/IdAllocator";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
+import { decodeImportedTranscriptPayload } from "./AgentSessionImportedTranscripts.ts";
 import * as ProjectService from "./ProjectService.ts";
 
 const IMPORT_EVENT_PREFIX = "agent-session-import:v2";
 const CLAUDE_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const decodeImportedTranscriptPayload = Schema.decodeUnknownOption(
-  Schema.Struct({
-    cwd: Schema.optional(Schema.String),
-    importedTranscripts: Schema.optional(Schema.Array(AgentSessionImportSource)),
-  }),
-);
 
 class AgentSessionUnresumableSessionError extends Schema.TaggedError<AgentSessionUnresumableSessionError>()(
   "AgentSessionUnresumableSessionError",

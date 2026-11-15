@@ -2,6 +2,8 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ThreadId,
+  type AgentSessionImportSource,
   type OrchestrationProjectShell,
   type ServerSettings as ContractServerSettings,
 } from "@goat/contracts";
@@ -16,6 +18,7 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
+import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
 
 const makeProjectShell = (workspaceRoot: string): OrchestrationProjectShell => ({
   id: ProjectId.make("project-1"),
@@ -42,7 +45,31 @@ interface ScannerTestInput {
   readonly importedWorkspaceRoots?: ReadonlyArray<string>;
   readonly configBaseDir?: string;
   readonly providerInstances?: ContractServerSettings["providerInstances"];
+  readonly importedTranscripts?: {
+    readonly cwd: string;
+    readonly sources: ReadonlyArray<AgentSessionImportSource>;
+  };
 }
+
+const layerRuntimeRepository = (imported: ScannerTestInput["importedTranscripts"]) =>
+  Layer.mock(ProviderSessionRuntime.ProviderSessionRuntimeRepository)({
+    list: () =>
+      Effect.sync(() =>
+        (imported?.sources ?? []).map((source): ProviderSessionRuntime.ProviderSessionRuntime => ({
+          threadId: ThreadId.make(
+            `import:${source.providerInstanceId}:${source.providerSessionId}`,
+          ),
+          providerName: source.provider,
+          providerInstanceId: source.providerInstanceId,
+          adapterKey: source.provider,
+          runtimeMode: "full-access",
+          status: "stopped",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+          resumeCursor: null,
+          runtimePayload: { cwd: imported?.cwd, importedTranscripts: [source] },
+        })),
+      ),
+  });
 
 export const layerScannerTest = (input: ScannerTestInput) =>
   AgentSessionScanner.layer.pipe(
@@ -80,6 +107,7 @@ export const layerScannerTest = (input: ScannerTestInput) =>
           input.configBaseDir ?? { prefix: "goat-scanner-config-" },
         ),
         layerProjectStore(input.importedWorkspaceRoots ?? []),
+        layerRuntimeRepository(input.importedTranscripts),
       ),
     ),
   );
