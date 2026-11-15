@@ -1,3 +1,9 @@
+import { makeMemoryRefreshFactory } from "./goat/MemoryRefreshFactory.ts";
+import { ProviderTurnStartError } from "./ProviderTurnStartTypes.ts";
+import type { ProviderTurnStartServiceV2Shape } from "./ProviderTurnStartTypes.ts";
+import * as Context from "effect/Context";
+export { ProviderTurnStartError } from "./ProviderTurnStartTypes.ts";
+export type { ProviderTurnStartServiceV2Shape } from "./ProviderTurnStartTypes.ts";
 import { makeProviderRunControls } from "./goat/ProviderRunControls.ts";
 import { restartRequiredIn } from "./ProviderSessionRetirement.ts";
 import { startsNoModelTurn } from "./goat/TurnModelGate.ts";
@@ -10,7 +16,6 @@ import { makeDeliverySession } from "./goat/ProviderTurnDeliverySession.ts";
 import { makePrepareTurnWorkspace, workspaceRestoredItem } from "./goat/prepareTurnWorkspace.ts";
 import { makeProviderTurnHandoffRecovery } from "./goat/ProviderTurnHandoffRecovery.ts";
 import { refuseCodexAdmission } from "./goat/CodexTurnAdmission.ts";
-import * as MemorySnapshot from "../memory/MemorySnapshot.ts";
 import { projectComposerContextForProvider } from "@goat/shared/composerContextReferences";
 import {
   CommandId,
@@ -27,8 +32,6 @@ import {
   RunId,
   ThreadId,
 } from "@goat/contracts";
-import * as Context from "effect/Context";
-import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -74,32 +77,11 @@ import {
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
 
-export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
-  "ProviderTurnStartError",
-  {
-    runId: RunId,
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {}
-
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 const isCloudTaskSourceError = Schema.is(CloudSource.CloudTaskSourceError);
 const isProviderAdapterOpenSessionError = Schema.is(
   ProviderAdapter.ProviderAdapterOpenSessionError,
 );
-
-export interface ProviderTurnStartServiceV2Shape {
-  /**
-   * Starts the run's provider turn. When `willRetry` is true, a session open
-   * failure is returned so the caller can retry. Workspace contention is always returned.
-   */
-  readonly start: (input: {
-    readonly threadId: ThreadId;
-    readonly runId: RunId;
-    readonly willRetry?: boolean;
-    readonly reattach?: boolean;
-  }) => Effect.Effect<void, ProviderTurnStartError>;
-}
 
 export class ProviderTurnStartServiceV2 extends Context.Service<
   ProviderTurnStartServiceV2,
@@ -139,7 +121,6 @@ export const layer: Layer.Layer<
     const codexSurvivors = yield* Effect.serviceOption(CodexSurvivors.CodexSurvivors);
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
-    const memorySnapshot = yield* Effect.serviceOption(MemorySnapshot.MemorySnapshot);
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
@@ -148,31 +129,7 @@ export const layer: Layer.Layer<
     const explainOpenFailure = yield* openFailureExplainer;
     const makeRunControls = makeProviderRunControls(projectionStore, idAllocator);
 
-    // Run workers keep this callback after startup. Capture only service references
-    // and scalar ids, outside start's scope containing the projection and history.
-    const makeRefreshMemoryContext = (threadId: ThreadId, runId: RunId) => () =>
-      Effect.gen(function* () {
-        if (Option.isNone(memorySnapshot) || !providerSessions.currentMemoryPolicy)
-          return undefined;
-        const currentPolicy = providerSessions.currentMemoryPolicy(threadId);
-        const policy = yield* currentPolicy;
-        if (policy.grant === "none") return undefined;
-        if ((yield* projectionStore.getThreadShell(threadId))?.activeRunId !== runId)
-          return undefined;
-        const snapshot = yield* memorySnapshot.value.forThread(threadId, policy, currentPolicy);
-        return (yield* projectionStore.getThreadShell(threadId))?.activeRunId === runId
-          ? snapshot
-          : undefined;
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.interrupt
-            : Effect.logWarning("Memory refresh unavailable", {
-                threadId,
-                runId,
-              }).pipe(Effect.as(undefined)),
-        ),
-      );
+    const makeRefreshMemoryContext = yield* makeMemoryRefreshFactory;
 
     const start = Effect.fn("orchestrationV2.providerTurnStart.start")(function* (input: {
       readonly threadId: ThreadId;
