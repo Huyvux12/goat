@@ -93,6 +93,8 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
     readonly resumeTurn?: Effect.Effect<void>;
     readonly interruptTurn?: Effect.Effect<void>;
     readonly beforeUnload?: Effect.Effect<void>;
+    readonly unloads?: Queue.Queue<string>;
+    readonly archive?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
     readonly spawnBeforeOpen?: boolean;
     readonly scopeCloseReached?: Deferred.Deferred<void>;
   } = {},
@@ -102,7 +104,11 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
     Ref.update(state, (current) => ({
       ...current,
       closeCount: current.closeCount + 1,
-    })),
+    })).pipe(
+      Effect.andThen(
+        options.unloads === undefined ? Effect.void : Queue.offer(options.unloads, "close"),
+      ),
+    ),
   );
   // Register after countClose to wedge teardown before its finalizer, matching a provider stream that never yields.
   const hangClose = Effect.addFinalizer(() =>
@@ -211,7 +217,7 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
               ...current,
               interruptCount: current.interruptCount + 1,
             })).pipe(Effect.andThen(options.interruptTurn ?? Effect.void)),
-          unloadThread: ({ providerThread }) =>
+          unloadThread: ({ providerThread, archive }) =>
             (options.beforeUnload ?? Effect.void).pipe(
               Effect.andThen(
                 Ref.update(state, (current) => ({
@@ -222,6 +228,15 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
                   ],
                 })),
               ),
+              Effect.andThen(
+                options.unloads === undefined
+                  ? Effect.void
+                  : Queue.offer(
+                      options.unloads,
+                      `${archive === true ? "archive" : "unload"}:${providerThread.nativeThreadRef?.nativeId}`,
+                    ),
+              ),
+              Effect.andThen(archive === true ? (options.archive ?? Effect.void) : Effect.void),
             ),
           respondToRuntimeRequest: () => Effect.void,
           readThreadSnapshot: () => unimplemented("readThreadSnapshot unused in test"),
@@ -267,6 +282,8 @@ export function layerTest(input: {
   readonly resumeTurn?: Effect.Effect<void>;
   readonly interruptTurn?: Effect.Effect<void>;
   readonly beforeUnload?: Effect.Effect<void>;
+  readonly unloads?: Queue.Queue<string>;
+  readonly archive?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
   readonly spawnBeforeOpen?: boolean;
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
@@ -341,6 +358,8 @@ export function layerTest(input: {
       ...(input.resumeTurn === undefined ? {} : { resumeTurn: input.resumeTurn }),
       ...(input.interruptTurn === undefined ? {} : { interruptTurn: input.interruptTurn }),
       ...(input.beforeUnload === undefined ? {} : { beforeUnload: input.beforeUnload }),
+      ...(input.unloads === undefined ? {} : { unloads: input.unloads }),
+      ...(input.archive === undefined ? {} : { archive: input.archive }),
       ...(input.spawnBeforeOpen === undefined ? {} : { spawnBeforeOpen: input.spawnBeforeOpen }),
       ...(input.scopeCloseReached === undefined
         ? {}
@@ -450,4 +469,4 @@ const layerPausingMcpRegistry = (pause: {
     }),
   ).pipe(Layer.provide(layerTestMcpRegistry));
 
-export { CodexCapabilities, fakeEnvironment };
+export { CodexCapabilities, fakeEnvironment, unimplemented };
