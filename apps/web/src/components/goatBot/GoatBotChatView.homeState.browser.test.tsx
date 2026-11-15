@@ -217,6 +217,12 @@ function view({
 
 type Screen = Awaited<ReturnType<typeof render>>;
 
+/** The test window's size; the default is phone-wide, where the sheet leaves no backdrop to press. */
+async function windowSize(width: number, height: number) {
+  const before = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(width, height);
+  return { [Symbol.asyncDispose]: () => page.viewport(before.width, before.height) };
+}
 const chatFrame = (screen: Screen) => screen.container.firstElementChild as HTMLElement;
 const dockedHome = () => page.getByRole("complementary", { name: "GOAT Bot work" });
 const homeSheet = () => page.getByRole("dialog", { name: "GOAT Bot work" });
@@ -347,6 +353,42 @@ it("Back still opens Home on its marked row when Home had collapsed the list bef
   );
 });
 
+it.each([
+  { how: "Close", sheet: false },
+  { how: "Back to chat", sheet: true },
+  { how: "Escape", sheet: true },
+  { how: "the dimmed chat beside the sheet", sheet: true },
+])(
+  "closing Home with $how resets where it was and keeps the typed wording in its note",
+  async ({ how, sheet }) => {
+    setup();
+    await using _window = await windowSize(1280, 900);
+    await using screen = await render(view());
+    if (sheet) await resizeFrame(chatFrame(screen), 700);
+    await typeWording(screen, "Kept after closing");
+    if (how === "Close") await userEvent.click(dockedHome().getByRole("button", { name: "Close" }));
+    else if (how === "Back to chat")
+      await userEvent.click(page.getByRole("button", { name: "Back to chat" }));
+    else if (how === "Escape") {
+      await userEvent.click(page.getByRole("tab", { name: "Library" }));
+      await userEvent.keyboard("{Escape}");
+    } else {
+      const backdrop = document.querySelector<HTMLElement>("[data-slot=sheet-viewport]")!;
+      await userEvent.click(page.elementLocator(backdrop), { position: { x: 40, y: 450 } });
+    }
+    await expect.element(homeChip(screen)).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(homeChip(screen));
+    await expect
+      .element(page.getByRole("tab", { name: "Home" }))
+      .toHaveAttribute("aria-selected", "true");
+    await userEvent.click(page.getByRole("tab", { name: "Library" }));
+    // Only the note it was typed for opens with it.
+    await expect.element(wording()).toHaveValue("Kept after closing");
+    expect(page.getByRole("textbox", { name: "New wording" }).elements()).toHaveLength(1);
+    expect(page.getByRole("button", { name: "Ask to change" }).elements()).toHaveLength(1);
+  },
+);
+
 it("a notes refresh starts the new list without the wording typed for the old one", async () => {
   setup();
   await using screen = await render(view());
@@ -359,6 +401,19 @@ it("a notes refresh starts the new list without the wording typed for the old on
   await resizeFrame(chatFrame(screen), 700);
   await expect.element(homeSheet()).toBeVisible();
   await expect.element(wording()).not.toBeInTheDocument();
+});
+
+it("Escape on Edit bot drops its draft, so opening it again shows the saved name", async () => {
+  setup();
+  await using screen = await render(view());
+  await userEvent.click(homeChip(screen));
+  await userEvent.click(page.getByRole("button", { name: "Edit bot" }));
+  const editBot = page.getByRole("dialog", { name: "Edit bot" });
+  await userEvent.fill(editBot.getByRole("textbox", { name: "Name" }), "Ada");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(editBot).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("button", { name: "Edit bot" }));
+  await expect.element(editBot.getByRole("textbox", { name: "Name" })).toHaveValue("GOAT Bot");
 });
 
 it("another bot's or environment's Home shows nothing typed in this one", async () => {
@@ -449,3 +504,21 @@ it("an Edit bot save refused after a flip keeps the name and shows why in the di
   await expect.element(editBot.getByRole("textbox", { name: "Name" })).toHaveValue("Ada");
   expect(state.updateBot).toHaveBeenCalledTimes(1);
 });
+
+it.each(["Cancel", "Save"])(
+  "%s on the check-in form drops its choices, so opening it again shows the defaults",
+  async (button) => {
+    setup();
+    state.upsert.mockResolvedValue(AsyncResult.success({ task: {} }));
+    await using screen = await render(view());
+    await userEvent.click(homeChip(screen));
+    await userEvent.click(page.getByRole("button", { name: "Check in on me" }));
+    await userEvent.fill(page.getByLabelText("At"), "07:30");
+    await userEvent.click(page.getByRole("button", { name: button }));
+    await expect
+      .element(page.getByRole("form", { name: "Check in on me" }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Check in on me" }));
+    await expect.element(page.getByLabelText("At")).toHaveValue("09:00");
+  },
+);

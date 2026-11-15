@@ -22,7 +22,7 @@ import { GoatBotCheckInForm } from "./GoatBotCheckInForm";
 import { useGoatBotName } from "./goatBotMemberContext";
 import { GoatBotPanelEmpty, GoatBotPanelFailure } from "./GoatBotPanelEmpty";
 import { GoatBotCardRow, GoatBotCardSkeleton, GoatBotShowMoreRow } from "./GoatBotSectionCard";
-import { useGoatBotHomeState } from "./goatBotHomeState";
+import { useGoatBotHomeRemove, useGoatBotHomeState } from "./goatBotHomeState";
 
 /** What New routine puts in the message box: the person finishes the sentence. */
 const NEW_ROUTINE_DRAFT = "Set up a routine: ";
@@ -155,11 +155,19 @@ function CheckInOffer(props: {
     serverEnvironment.upsertScheduledTask.permissionAtom(props.environmentId),
   );
   const [open, setOpen] = useGoatBotHomeState("input:checkIn:open", false);
+  const removeHome = useGoatBotHomeRemove();
   if (!canCreate) return null;
   if (open)
     return (
       <div className="border-b border-border/50 px-3 py-2">
-        <GoatBotCheckInForm {...props} onClose={() => setOpen(false)} />
+        <GoatBotCheckInForm
+          {...props}
+          onClose={() => {
+            // A save or Cancel ends the form, and with it what it held.
+            setOpen(false);
+            removeHome((key) => key.startsWith("input:checkIn:"));
+          }}
+        />
       </div>
     );
   return (
