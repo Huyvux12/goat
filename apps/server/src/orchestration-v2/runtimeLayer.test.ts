@@ -89,111 +89,15 @@ import {
   alternateInstanceId,
   layerCheckpointStoreTest,
   layerGitWorkflowTest,
+  layerLegacyImportTest,
   layerProjectServiceTest,
   layerTestProviderInstanceRegistry,
+  moveProject,
+  seedProject,
+  watchedPullRequestDetail,
 } from "./runtimeLayer.testkit.ts";
 
 const prWatchDisabledProjectId = ProjectId.make("pr-watch-disabled-project");
-
-const watchedPullRequestDetail = (input: {
-  readonly projectId: ProjectId;
-  readonly number: number;
-  readonly at: string;
-}): PullRequestDetail => ({
-  provider: SourceControlProviderKind.make("github"),
-  capabilities: {
-    diff: true,
-    comment: true,
-    actions: [],
-    mergeMethods: [],
-    search: false,
-    checksAlwaysReport: true,
-    review: { inlineComment: false, reply: false, resolve: false, verdicts: [] },
-    reviewers: { request: false, listCandidates: false },
-  },
-  viewerPermissions: {
-    actions: [],
-    comment: true,
-    resolve: true,
-    verdicts: [],
-    requestReviewers: false,
-  },
-  projectId: input.projectId,
-  projectTitle: "Watch wake",
-  workspaceRoot: "/workspace/watch",
-  repository: "goat-si/goat",
-  number: input.number,
-  title: "Watched pull request",
-  body: "",
-  url: `https://github.com/goat-si/goat/pull/${input.number}`,
-  author: { login: "agent-user", name: null, avatarUrl: null },
-  state: "open",
-  isDraft: false,
-  mergeability: "mergeable",
-  additions: 1,
-  deletions: 0,
-  changedFiles: 1,
-  headBranch: "feature",
-  headSha: "abc1234def",
-  baseBranch: "main",
-  createdAt: input.at,
-  updatedAt: input.at,
-  mergedAt: null,
-  closedAt: null,
-  reviewers: [],
-  labels: [],
-  checks: [{ name: "lint", status: "failure", description: null, url: null }],
-  mergeCapabilities: { merge: true, squash: true, rebase: true },
-  viewer: "agent-user",
-});
-
-const seedProject = (input: {
-  readonly projectId: ProjectId;
-  readonly title: string;
-  readonly workspaceRoot: string;
-  readonly defaultModelSelection: ModelSelection | null;
-  readonly createdAt: string;
-}) =>
-  Effect.flatMap(ProjectStore.ProjectStoreV2, (projects) =>
-    projects.apply({
-      sequence: 0,
-      eventId: EventId.make(`seed:${input.projectId}`),
-      aggregateKind: "project",
-      aggregateId: input.projectId,
-      occurredAt: input.createdAt,
-      commandId: null,
-      causationEventId: null,
-      correlationId: null,
-      metadata: {},
-      type: "project.created",
-      payload: {
-        projectId: input.projectId,
-        title: input.title,
-        workspaceRoot: input.workspaceRoot,
-        defaultModelSelection: input.defaultModelSelection,
-        scripts: [],
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      },
-    }),
-  );
-
-const moveProject = (projectId: ProjectId, workspaceRoot: string, updatedAt: string) =>
-  Effect.flatMap(ProjectStore.ProjectStoreV2, (projects) =>
-    projects.apply({
-      sequence: 0,
-      eventId: EventId.make(`move:${projectId}:${workspaceRoot}`),
-      aggregateKind: "project",
-      aggregateId: projectId,
-      occurredAt: updatedAt,
-      commandId: null,
-      causationEventId: null,
-      correlationId: null,
-      metadata: {},
-      type: "project.meta-updated",
-      payload: { projectId, workspaceRoot, updatedAt },
-    }),
-  );
 
 const layerTest = Layer.mergeAll(
   RuntimeLayer.layer,
@@ -221,18 +125,6 @@ const layerTest = Layer.mergeAll(
   Layer.provide(layerPlatformTest),
 );
 
-const layerLegacyImportTest = RuntimeLayer.layer.pipe(
-  Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(McpProviderSessions.layer),
-  Layer.provideMerge(SqlitePersistence.layerMemory),
-  Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
-  Layer.provide(ServerSettings.layerTest()),
-  Layer.provide(layerTestProviderInstanceRegistry),
-  Layer.provide(layerGitWorkflowTest),
-  Layer.provide(layerProjectServiceTest),
-  Layer.provide(layerPlatformTest),
-);
 const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   RuntimeLayer.layer.pipe(Layer.provide(RuntimeLayer.layerProjectService)),
   RuntimeLayer.layerProjectService,
