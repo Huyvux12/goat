@@ -90,6 +90,7 @@ import {
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -1800,7 +1801,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const skipBuild = resolveBooleanFlag(input.skipBuild, env.skipBuild);
   const version = yield* resolveDesktopBuildVersion({
     explicitVersion: mergeOptions(input.buildVersion, env.version, undefined),
-    packageVersion: serverPackageJson.version,
+    packageVersion: resolveTaggedSourceVersion(repoRoot, serverPackageJson.version),
     ci: env.ci,
     skipBuild,
     repoRoot,
