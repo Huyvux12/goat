@@ -73,6 +73,7 @@ import {
 } from "../features/threads/pending-thread-feed";
 import { threadAllowsProviderSwitch } from "./thread-provider-switching";
 import { appAtomRegistry } from "../state/atom-registry";
+import { fullHistoryThreadKeysAtom, setKeepFullHistory } from "./full-history-threads";
 import { pendingThreadCreationMessage } from "./pending-thread-creation";
 import {
   composerAttachmentUploadBlockReason,
@@ -133,17 +134,6 @@ import { turnCanStop } from "../features/threads/turn-settle";
 const EMPTY_QUEUE_WORKFLOW_ATOM = Atom.make<null>(null).pipe(
   Atom.withLabel("mobile-thread-queue-workflow:empty"),
 );
-// Threads whose next send keeps the full history instead of compacting first.
-const fullHistoryThreadKeysAtom = Atom.make<Readonly<Record<string, true>>>({}).pipe(
-  Atom.keepAlive,
-);
-
-function setKeepFullHistory(threadKey: string, keep: boolean) {
-  const { [threadKey]: kept, ...rest } = appAtomRegistry.get(fullHistoryThreadKeysAtom);
-  if ((kept === true) === keep) return;
-  appAtomRegistry.set(fullHistoryThreadKeysAtom, keep ? { ...rest, [threadKey]: true } : rest);
-}
-
 const EMPTY_CHECKPOINT_SUMMARIES_ATOM = Atom.make<ReadonlyArray<ThreadCheckpointSummary>>([]);
 const EMPTY_THREAD_SEQUENCE_ATOM = Atom.make(0);
 
