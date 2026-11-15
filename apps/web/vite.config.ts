@@ -25,6 +25,7 @@ import { resolveTaggedSourceVersion } from "../../scripts/lib/tagged-source-vers
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
+import { formatAppDisplayName, resolveWebAppStageLabel } from "./src/branding.logic";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -50,6 +51,8 @@ const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.tr
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
 const configuredReleaseChannel =
   process.env.GOAT_BUILT_DEV === "1" ? "dev" : process.env.VITE_RELEASE_CHANNEL?.trim() || "";
+// The release workflow builds the hosted app with latest or nightly.
+const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
 const configuredDesktopUpdateRepository = process.env.GOAT_DESKTOP_UPDATE_REPOSITORY?.trim() || "";
 const configuredHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim() || undefined;
 const sourcemapEnv = process.env.GOAT_WEB_SOURCEMAP?.trim().toLowerCase();
@@ -311,6 +314,29 @@ function bundledDevStableNamesPlugin(): Plugin {
   };
 }
 
+// Stamps index.html's title with the name branding.ts resolves once the app
+// loads, so a tab opens on the right channel instead of flashing another's.
+// Desktop swaps in its injected branding from an inline script in index.html.
+function bootstrapTitlePlugin(): Plugin {
+  let development = false;
+  return {
+    name: "goat:bootstrap-title",
+    configResolved(config) {
+      // The same flag Vite exposes to the app as import.meta.env.DEV.
+      development = !config.isProduction;
+    },
+    transformIndexHtml(html) {
+      const stageLabel = resolveWebAppStageLabel({
+        VITE_HOSTED_APP_CHANNEL: configuredHostedAppChannel,
+        VITE_RELEASE_CHANNEL: configuredReleaseChannel,
+        DEV: development,
+      });
+      const title = formatAppDisplayName({ baseName: "GOAT", stageLabel });
+      return html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`);
+    },
+  };
+}
+
 // Allow Tailnet hosts for sharing; Tailscale-controlled DNS prevents attacker rebinding.
 const configuredAllowedHosts = (process.env.GOAT_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
@@ -338,6 +364,7 @@ export default defineConfig(({ command }) => {
     },
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      bootstrapTitlePlugin(),
       // Worker previews repeatedly fetch large WASM assets; loopback tests need no compression.
       process.env.VITEST ? undefined : devCompressionPlugin(),
       chunkCycleGuardPlugin(),
@@ -387,6 +414,7 @@ export default defineConfig(({ command }) => {
       ),
       "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
+      "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
       "import.meta.env.GOAT_DESKTOP_UPDATE_REPOSITORY": JSON.stringify(
         configuredDesktopUpdateRepository,
       ),
