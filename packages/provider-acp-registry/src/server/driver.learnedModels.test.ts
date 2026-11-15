@@ -137,6 +137,9 @@ const ready = {
 /** An instance on profile A whose agent reports model-a and model-b; the host can move. */
 const makeProfiles = Effect.fn("makeProfiles")(function* (
   inspect?: AcpRegistrySupport.AcpRegistryCatalog["Service"]["inspect"],
+  getLiveConfiguration?: (
+    real: AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator["Service"],
+  ) => AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator["Service"]["getLiveConfiguration"],
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -155,6 +158,12 @@ const makeProfiles = Effect.fn("makeProfiles")(function* (
     config: decodeSettings({ agentId: "test-agent" }),
   }).pipe(
     Effect.provideService(HostProcess.Environment, host),
+    Effect.provideService(AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator, {
+      ...coordinator,
+      ...(getLiveConfiguration === undefined
+        ? {}
+        : { getLiveConfiguration: getLiveConfiguration(coordinator) }),
+    }),
     Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
       ...catalogWithInspection(ready),
       ...(inspect === undefined ? {} : { inspect }),
@@ -328,6 +337,49 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
       heldFiber = check.id;
       yield* Deferred.await(reached);
       // The held check read profile A; B becomes current and a B session teaches an option.
+      host.HOME = "/profile/b";
+      const learned = yield* showing((snapshot) =>
+        effortBySlug(snapshot).includes("model-b:effort"),
+      );
+      yield* publish("model-b");
+      yield* Fiber.join(learned);
+      yield* Deferred.succeed(release, undefined);
+      expect(effortBySlug(yield* Fiber.join(check))).toBe("model-a:,model-b:effort");
+      expect(effortBySlug(yield* instance.snapshot.getSnapshot)).toBe("model-a:,model-b:effort");
+    }),
+  );
+
+  it.effect("a check whose profile changes while it reads the live state is redone", () =>
+    Effect.gen(function* () {
+      const reached = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      // The one check fiber the test holds: its first readiness reports A's agent missing, so no
+      // probe could restore B, and it waits while reading the live state, after readiness.
+      let heldFiber: number | undefined;
+      let heldReadiness = true;
+      const isHeld = () => heldFiber !== undefined && Fiber.getCurrent()?.id === heldFiber;
+      const { instance, host, showing, publish } = yield* makeProfiles(
+        () => {
+          if (!isHeld() || !heldReadiness) return Effect.succeed(ready);
+          heldReadiness = false;
+          return Effect.succeed({ status: "not_found", agentId: "test-agent" } as const);
+        },
+        (real) => (instanceId) => {
+          if (!isHeld()) return real.getLiveConfiguration(instanceId);
+          heldFiber = undefined;
+          return Deferred.succeed(reached, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(real.getLiveConfiguration(instanceId)),
+          );
+        },
+      );
+      const probed = yield* showing((snapshot) => effortBySlug(snapshot) === "model-a:,model-b:");
+      yield* instance.snapshot.refresh;
+      yield* Fiber.join(probed);
+      const check = yield* instance.snapshot.refresh.pipe(Effect.forkScoped);
+      heldFiber = check.id;
+      yield* Deferred.await(reached);
+      // Readiness under A is done; B becomes current and a B session teaches an option.
       host.HOME = "/profile/b";
       const learned = yield* showing((snapshot) =>
         effortBySlug(snapshot).includes("model-b:effort"),

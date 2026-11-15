@@ -587,9 +587,9 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             }),
           );
     });
-    // Readiness and the live state share one environment, read after the learned generation. A
-    // check whose environment changed meanwhile is redone (twice at most), so it does not commit
-    // an earlier environment's snapshot over the current one's.
+    // Readiness and the live state share one environment, read after the learned generation. If
+    // it changed by the end, the check is redone (twice at most); nothing waits on I/O between
+    // that comparison and the commit, so another environment's update cannot land in between.
     const checkFrom: (
       attempt: number,
     ) => Effect.Effect<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog> = Effect.fn(
@@ -598,9 +598,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       const generation = yield* learnedModels.generation;
       const environment = yield* currentEnvironment;
       const provider = yield* checkAcpRegistryProviderReadiness(readinessInput(environment));
+      const checked = yield* withLiveRuntimeState(provider, environment, { generation });
       const moved = environmentText(yield* currentEnvironment) !== environmentText(environment);
       if (moved && attempt < 2) return yield* checkFrom(attempt + 1);
-      return yield* withLiveRuntimeState(provider, environment, { generation });
+      return checked;
     });
     const checkProvider = checkFrom(0).pipe(
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
