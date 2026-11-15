@@ -523,16 +523,34 @@ it.each(["Cancel", "Save"])(
   },
 );
 
-it("a resize drag that narrows the chat view keeps Home docked until the pointer is released", async () => {
+it.each(["pointerup", "pointercancel", "blur"] as const)(
+  "a resize drag that narrows the chat view keeps Home docked until the pointer ends (%s)",
+  async (end) => {
+    setup();
+    await using screen = await render(view());
+    await userEvent.click(homeChip(screen));
+    await expect.element(dockedHome()).toBeVisible();
+    const pointer = { bubbles: true, pointerId: 1, button: 0, isPrimary: true };
+    await act(() => document.body.dispatchEvent(new PointerEvent("pointerdown", pointer)));
+    await resizeFrame(chatFrame(screen), 700);
+    expect(homeSheet().query()).toBeNull();
+    await expect.element(dockedHome()).toBeVisible();
+    await act(() =>
+      end === "blur"
+        ? window.dispatchEvent(new FocusEvent("blur"))
+        : document.body.dispatchEvent(new PointerEvent(end, pointer)),
+    );
+    await expect.element(homeSheet()).toBeVisible();
+  },
+);
+
+it("a right-button press, whose release a context menu can swallow, does not hold Home's presentation", async () => {
   setup();
   await using screen = await render(view());
   await userEvent.click(homeChip(screen));
   await expect.element(dockedHome()).toBeVisible();
-  const pointer = { bubbles: true, pointerId: 1, button: 0 };
+  const pointer = { bubbles: true, pointerId: 1, button: 2, isPrimary: true };
   await act(() => document.body.dispatchEvent(new PointerEvent("pointerdown", pointer)));
   await resizeFrame(chatFrame(screen), 700);
-  expect(homeSheet().query()).toBeNull();
-  await expect.element(dockedHome()).toBeVisible();
-  await act(() => document.body.dispatchEvent(new PointerEvent("pointerup", pointer)));
   await expect.element(homeSheet()).toBeVisible();
 });
