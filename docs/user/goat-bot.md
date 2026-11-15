@@ -102,7 +102,8 @@ bot's tasks, and a task opens in its own view.
   run went, and a switch to pause them. **Check in on me** sets up a routine on the days and
   hours you choose: the bot looks over its tasks and writes only when something needs you. A
   routine whose last run failed shows **Run now**. **New routine** starts a routine request in the
-  message box for you to finish and send.
+  message box for you to finish and send. On the phone, the **+** beside the chat's message box
+  offers it too, with your photos and files.
 - **New routine**, **Ask to change** and **Ask to forget** fill only an empty message box. If it
   already holds your text or files, they stay as they are: send or clear them first.
 - A task that failed or that you stopped shows **Retry** in its task view; each
