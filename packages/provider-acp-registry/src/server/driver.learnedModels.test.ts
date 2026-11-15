@@ -201,7 +201,7 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
     }),
   );
 
-  it.effect("an empty update under a new profile republishes nothing from the old one", () =>
+  it.effect("an empty or partial update under an unchecked profile clears the old options", () =>
     Effect.gen(function* () {
       const { instance, coordinator, host, showing, publish } = yield* makeProfiles();
       const probed = yield* showing((snapshot) => effortBySlug(snapshot) === "model-a:,model-b:");
@@ -213,20 +213,29 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
       yield* publish("model-a");
       yield* Fiber.join(learned);
       host.HOME = "/profile/b";
-      // Every snapshot published until B's own options show, in order.
+      // Every snapshot published until B's own options show, in order; the first one is the
+      // snapshot shown right after B's empty update.
       const published = yield* instance.snapshot.streamChanges.pipe(
         Stream.map(effortBySlug),
         Stream.takeUntil((models) => models.includes("model-b:effort")),
         Stream.runCollect,
         Effect.forkScoped({ startImmediately: true }),
       );
-      // A B session reports no models or options, then one that does.
+      // B sessions report nothing, then options without a model list, then a model list.
+      const underB = { environmentKey: acpRegistryEnvironmentKey({ ...host }) };
       yield* coordinator.publishLiveConfiguration(identity.instanceId, {
         ...normalizeAcpRegistryLiveConfiguration([], undefined, undefined),
-        environmentKey: acpRegistryEnvironmentKey({ ...host }),
+        ...underB,
+      });
+      yield* coordinator.publishLiveConfiguration(identity.instanceId, {
+        ...sessionUnder({ ...host }, "model-a"),
+        models: [],
       });
       yield* publish("model-b");
-      expect(yield* Fiber.join(published)).toEqual(["model-a:,model-b:effort"]);
+      expect(yield* Fiber.join(published)).toEqual([
+        "model-a:,model-b:",
+        "model-a:,model-b:effort",
+      ]);
     }),
   );
 
