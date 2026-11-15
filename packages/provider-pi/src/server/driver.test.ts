@@ -145,7 +145,8 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
   it.effect("maintenance resolves the executable once per uncached lookup", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.makeTempDirectoryScoped();
+      // The resolver reports real paths; a temp directory can sit behind a symlink (macOS /var).
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
       const executable = `${root}/custom-pi`;
       yield* fs.writeFileString(executable, "#!/bin/sh\n");
       yield* fs.chmod(executable, 0o755);

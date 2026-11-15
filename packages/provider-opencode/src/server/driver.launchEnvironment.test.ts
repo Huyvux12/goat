@@ -148,7 +148,8 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
   it.effect("maintenance follows PATH changes and caches unchanged paths", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.makeTempDirectoryScoped();
+      // The resolver reports real paths; a temp directory can sit behind a symlink (macOS /var).
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
       const oldDir = `${root}/old`;
       const newDir = `${root}/new`;
       for (const dir of [oldDir, newDir]) {
