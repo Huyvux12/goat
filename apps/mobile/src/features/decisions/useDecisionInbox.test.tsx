@@ -46,6 +46,7 @@ const fixture = vi.hoisted<{
   os: string;
   threads: EnvironmentThreadShell[];
   projects: EnvironmentProject[];
+  threadShell: Partial<EnvironmentThreadShell>;
   selectedEnvironmentId: EnvironmentId | null;
   selectedProjectKey: string | null;
   searchQuery: string;
@@ -70,6 +71,7 @@ const fixture = vi.hoisted<{
   os: "ios",
   threads: [],
   projects: [],
+  threadShell: {},
   selectedEnvironmentId: null,
   selectedProjectKey: null,
   searchQuery: "",
@@ -191,9 +193,11 @@ vi.mock("../workspace/useSelectWorkspaceDetail", () => ({
 }));
 vi.mock("../../state/entities", () => ({
   useThreadShell: (ref: ScopedThreadRef | null) =>
-    ref ? { title: `Thread ${ref.threadId}` } : null,
+    ref ? { title: `Thread ${ref.threadId}`, ...fixture.threadShell } : null,
   useNavigationThreadShells: () => fixture.threads,
   useProjects: () => fixture.projects,
+  useProject: (ref: { projectId: ProjectId } | null) =>
+    fixture.projects.find((project) => project.id === ref?.projectId) ?? null,
 }));
 vi.mock("../../state/use-remote-environment-registry", () => ({
   useSavedRemoteConnection: (id: EnvironmentId | null) =>
@@ -206,8 +210,18 @@ vi.mock("../../components/ui/ControlPill", () => ({
 vi.mock("../../components/ui/Menu", () => ({ Menu: Box }));
 vi.mock("../../components/ui/GlassSurface", () => ({ GlassSurface: Box }));
 vi.mock("../../native/SelectableMarkdownText", () => ({
-  SelectableMarkdownText: (props: { readonly markdown: string }) => (
-    <TextHost>{props.markdown}</TextHost>
+  SelectableMarkdownText: (props: {
+    readonly markdown: string;
+    readonly onLinkPress?: (href: string) => void;
+  }) => (
+    <>
+      <TextHost>{props.markdown}</TextHost>
+      {[...props.markdown.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)].map(([, label, href]) => (
+        <button key={href} type="button" onClick={() => props.onLinkPress?.(href!)}>
+          {label}
+        </button>
+      ))}
+    </>
   ),
 }));
 vi.mock("../../native/useOpenPullRequest", () => ({
@@ -364,6 +378,7 @@ beforeEach(() => {
   fixture.producerEvaluations.clear();
   fixture.threads = [];
   fixture.projects = [];
+  fixture.threadShell = {};
   fixture.selectedEnvironmentId = null;
   fixture.selectedProjectKey = null;
   fixture.searchQuery = "";
@@ -764,6 +779,35 @@ it("sends a durable decision from the route screen and drops a choice the live d
     stale.click();
   });
   expect(fixture.userInput).toHaveBeenCalledTimes(1);
+});
+
+it("opens a workspace file a Decisions question cites by absolute path at its workspace path", async () => {
+  const projectId = ProjectId.make("project");
+  fixture.threadShell = { environmentId: envA, projectId, worktreePath: null };
+  fixture.projects = [
+    {
+      environmentId: envA,
+      id: projectId,
+      title: "Project",
+      workspaceRoot: "/synthetic/repo",
+      repositoryIdentity: null,
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: a.createdAt,
+      updatedAt: a.createdAt,
+    },
+  ];
+  const navigate = vi.fn();
+  fixture.navigate = navigate;
+  const cited = { ...question, question: "Update [probe.md](/synthetic/repo/docs/probe.md:12)?" };
+  await mount([userInput(envA, [cited])], <DecisionsRouteScreen />);
+  await click("probe.md");
+  expect(navigate).toHaveBeenCalledExactlyOnceWith("ThreadFile", {
+    environmentId: envA,
+    threadId: "thread",
+    path: ["docs", "probe.md"],
+    line: "12",
+  });
 });
 
 it("renders recovery and honest empty states then allows a recovered answer", async () => {
