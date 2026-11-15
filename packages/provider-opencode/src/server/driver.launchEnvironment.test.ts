@@ -339,20 +339,15 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
         HOME: "/fixture/opencode-test",
         XDG_DATA_HOME: "/fixture/opencode-test",
       };
-      // The PATH each local "opencode --version" probe ran with.
-      const versionProbes: Array<string | undefined> = [];
+      // The CLI on /old is OpenCode 1 and the one on /new OpenCode 2, so each probe's answer
+      // shows which PATH it ran with.
       const runtime = {
         ...openCode2Runtime,
-        runOpenCodeCommand: ({
-          args,
-          environment,
-        }: {
-          readonly args: ReadonlyArray<string>;
-          readonly environment?: NodeJS.ProcessEnv;
-        }) =>
-          Effect.sync(() => {
-            if (args.join(" ") === "--version") versionProbes.push(environment?.PATH);
-            return { stdout: "opencode v2.0.18\n", stderr: "", code: 0 };
+        runOpenCodeCommand: ({ environment }: { readonly environment?: NodeJS.ProcessEnv }) =>
+          Effect.succeed({
+            stdout: environment?.PATH === "/new" ? "opencode v2.1.0\n" : "1.18.32\n",
+            stderr: "",
+            code: 0,
           }),
       };
       const http = HttpClient.make((request) =>
@@ -374,15 +369,17 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
         Effect.provideService(HostProcess.Environment, hostEnvironment),
         Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })),
       );
-      yield* instance.snapshot.resolveMaintenance();
+      assert.strictEqual(
+        (yield* instance.snapshot.resolveMaintenance()).packageName,
+        "opencode-ai",
+      );
       hostEnvironment.PATH = "/new";
-      const before = versionProbes.length;
-      yield* instance.snapshot.resolveMaintenance({ fresh: true });
-      yield* instance.snapshot.refresh;
-      const after = versionProbes.slice(before);
-      // The maintenance lookup and the check's installed-version probe, at least.
-      assert.isAtLeast(after.length, 2);
-      assert.deepStrictEqual([...new Set(after)], ["/new"]);
+      // The maintenance lookup and the status check each probe the CLI on the current PATH.
+      assert.strictEqual(
+        (yield* instance.snapshot.resolveMaintenance({ fresh: true })).packageName,
+        "@opencode/cli",
+      );
+      assert.strictEqual((yield* instance.snapshot.refresh).installedVersion, "2.1.0");
     }).pipe(Effect.scoped),
   );
 
