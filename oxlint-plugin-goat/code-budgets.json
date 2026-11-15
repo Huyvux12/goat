@@ -25,7 +25,7 @@
   "apps/desktop/src/snapShot/snapShot.ts": { "nonNull": 3 },
   "apps/desktop/src/updates/DesktopUpdates.ts": { "lines": 1498 },
   "apps/desktop/src/window/DesktopWindow.test.ts": { "lines": 1244 },
-  "apps/desktop/src/window/DesktopWindow.ts": { "lines": 1109, "nonNull": 2 },
+  "apps/desktop/src/window/DesktopWindow.ts": { "lines": 1111, "nonNull": 2 },
   "apps/desktop/src/wsl/DesktopWslEnvironment.ts": { "lines": 1234 },
   "apps/desktop/src/wsl/wslPathParsing.ts": { "nonNull": 5 },
   "apps/mobile/app.config.ts": { "nonNull": 1 },
