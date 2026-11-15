@@ -290,20 +290,22 @@ function GoatBotChatViewContent({
   const [replyState, setReplyState] = useState<{ botIdentity: string; text: string } | null>(null);
   if (replyState !== null && replyState.botIdentity !== botIdentity) setReplyState(null);
   const replyTo = replyState?.botIdentity === botIdentity ? replyState.text : null;
-  const onDraft = canSend
-    ? (text: string) => {
-        if (narrow) {
-          sheetClosedFor.current = "draft";
-          setPanelOpen(false);
+  // Home in its sheet over a task would fill a message box nobody can see.
+  const onDraft =
+    canSend && !hidden
+      ? (text: string) => {
+          if (narrow) {
+            sheetClosedFor.current = "draft";
+            setPanelOpen(false);
+          }
+          if (composerRef.current?.offerDraft(text) === false) {
+            toastManager.add({
+              type: "info",
+              title: "Your message box already has a message. Send or clear it, then try again.",
+            });
+          }
         }
-        if (composerRef.current?.offerDraft(text) === false) {
-          toastManager.add({
-            type: "info",
-            title: "Your message box already has a message. Send or clear it, then try again.",
-          });
-        }
-      }
-    : undefined;
+      : undefined;
   const notesRefreshKey = goatBotNotesRefreshKey(rows);
   // A Library file open in place of the conversation, for the bot it was opened from.
   const [viewing, setViewing] = useState<{

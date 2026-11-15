@@ -802,3 +802,18 @@ it("on the bot's own chat, crossing the 980px window gate moves an open Home to 
   await expect.element(homeSheet()).toBeVisible();
   expect(dockedHome(screen).query()).toBeNull();
 });
+
+it("Home in its sheet over the task asks nothing of the hidden composer: its draft actions are off", async () => {
+  const { view } = setup();
+  await using screen = await render(view([], false, null, undefined, false, true));
+  await resizeFrame(chatFrame(screen), 751);
+  await openMemory(screen);
+  await expect.element(page.getByRole("button", { name: "Ask to change" })).toBeEnabled();
+  await screen.rerender(view([], false, null, undefined, true, true));
+  // The sheet stays open over the task; what it would put in the message box cannot be seen.
+  await expect.element(homeSheet()).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Ask to change" })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: "Ask to forget" })).toBeDisabled();
+  await screen.rerender(view([], false, null, undefined, false, true));
+  await expect.element(page.getByRole("button", { name: "Ask to change" })).toBeEnabled();
+});
