@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { hasPendingThreadPick, type PendingThreadIdsAtom } from "./modelPickPending";
 import { sameDrafts } from "./draftEquality";
+import { mergeComposerDraftText } from "./composerDraftText";
 import {
   EnvironmentId as EnvironmentIdSchema,
   ModelSelection as ModelSelectionSchema,
@@ -1572,19 +1573,6 @@ function stripAttachmentUploadReference(
 ): DraftComposerAttachment {
   const { uploadedAttachmentId: _id, uploadEnvironmentId: _environmentId, ...rest } = attachment;
   return rest;
-}
-
-function mergeComposerDraftText(existing: string, incoming: string): string {
-  if (incoming.length === 0) {
-    return existing;
-  }
-  if (existing.length === 0) {
-    return incoming;
-  }
-  if (existing === incoming || existing.endsWith(`\n\n${incoming}`)) {
-    return existing;
-  }
-  return `${existing}\n\n${incoming}`;
 }
 
 function mergeReferencedComposerContext(
