@@ -11,7 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
 import {
-  GOAT_BOT_HOME_WIDTH_CLASS,
+  GOAT_BOT_HOME_DOCKED_WIDTH,
   GoatBotHomeDockedRegistry,
   useGoatBotHomePresentation,
 } from "./goatBotLayout";
@@ -619,7 +619,8 @@ function GoatBotChatViewContent({
           ref={registerHomeDocked}
           data-goat-bot-home-docked
           aria-label={`${title} work`}
-          className={cn("flex shrink-0 border-l border-border", GOAT_BOT_HOME_WIDTH_CLASS)}
+          className="flex shrink-0 border-l border-border"
+          style={{ width: GOAT_BOT_HOME_DOCKED_WIDTH }}
         >
           <GoatBotWorkPanel
             key={homeKey}

@@ -20,6 +20,7 @@ import { GoatBotChannelContext } from "../components/goatBot/goatBotChannelPort"
 import { useLegacyGlobalAgentRoute } from "../components/goatBot/goatBotHooks";
 import {
   GOAT_BOT_HOME_RESERVE_ROW_CLASS,
+  GOAT_BOT_HOME_RESERVE_ROW_STYLE,
   GoatBotChatCanHide,
   GoatBotChatHidden,
   GoatBotHomeDockedRegistry,
@@ -191,6 +192,7 @@ export function GoatBotTaskRoute({
       <div
         ref={rowRef}
         className={`flex min-h-0 min-w-0 flex-1 ${GOAT_BOT_HOME_RESERVE_ROW_CLASS}`}
+        style={GOAT_BOT_HOME_RESERVE_ROW_STYLE}
       >
         {/* Hidden, not unmounted, while the task replaces it: the composer keeps its draft, and its
             holds pause as they did when it unmounted. */}

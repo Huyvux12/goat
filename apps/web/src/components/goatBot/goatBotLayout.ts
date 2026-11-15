@@ -1,4 +1,11 @@
-import { createContext, useContext, useRef, useState, type FocusEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+} from "react";
 import { flushSync } from "react-dom";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -21,12 +28,17 @@ export const GoatBotChatHidden = createContext(false);
  */
 export const GoatBotChatCanHide = createContext(false);
 
-/** A docked Home's width; the row's reserve and the JS thresholds use the same 22rem. */
-export const GOAT_BOT_HOME_WIDTH_CLASS = "w-[22rem]";
+/** A docked Home's width, from the same constant as the row's reserve and the JS thresholds. */
+export const GOAT_BOT_HOME_DOCKED_WIDTH = `${HOME_DOCKED_REM}rem`;
 
 /** The task route's row: a docked Home in the chat leaves the task pane less room. */
 export const GOAT_BOT_HOME_RESERVE_ROW_CLASS =
-  "has-[[data-goat-bot-home-docked]]:[--goat-bot-home-reserve:22rem]";
+  "has-[[data-goat-bot-home-docked]]:[--goat-bot-home-reserve:var(--goat-bot-home-width)]";
+
+/** The row's style that gives the reserve a docked Home's width. */
+export const GOAT_BOT_HOME_RESERVE_ROW_STYLE = {
+  "--goat-bot-home-width": GOAT_BOT_HOME_DOCKED_WIDTH,
+} as CSSProperties;
 
 /** The task pane's width beside the chat: never the chat's 25rem or a docked Home's room. */
 export const GOAT_BOT_TASK_PANE_WIDTH = `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${CHAT_MIN_REM}rem - var(--goat-bot-home-reserve, 0px)))`;
