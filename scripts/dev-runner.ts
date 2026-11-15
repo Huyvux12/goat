@@ -219,11 +219,6 @@ const optionalBooleanConfig = (name: string): Config.Config<boolean | undefined>
     Config.option,
     Config.map((value) => Option.getOrUndefined(value)),
   );
-const optionalPortConfig = (name: string): Config.Config<number | undefined> =>
-  Config.Port(name).pipe(
-    Config.option,
-    Config.map((value) => Option.getOrUndefined(value)),
-  );
 const optionalIntegerConfig = (name: string): Config.Config<number | undefined> =>
   Config.Int(name).pipe(
     Config.option,
@@ -391,12 +386,14 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     delete output.GOAT_SINGLE_ORIGIN_DEV;
     delete output.GOAT_MODE;
     delete output.GOAT_NO_BROWSER;
-    delete output.GOAT_HOST;
     delete output.GOAT_DEV_AUTH_TOKEN;
   }
 
+  // Agent shells inherit the parent GOAT server's bind settings; only --host widens the dev server.
   if (!isDesktopMode && host !== undefined) {
     output.GOAT_HOST = host;
+  } else {
+    delete output.GOAT_HOST;
   }
 
   if (!isDesktopMode) {
@@ -879,13 +876,19 @@ const devRunnerCli = Command.make("dev-runner", {
     Flag.withFallbackConfig(optionalBooleanConfig("GOAT_LOG_WS_EVENTS")),
   ),
   host: Flag.String("host").pipe(
-    Flag.withDescription("Server host/interface override (forwards to GOAT_HOST)."),
-    Flag.withFallbackConfig(optionalStringConfig("GOAT_HOST")),
+    Flag.withDescription(
+      "Server host/interface override (forwards to GOAT_HOST). Ambient GOAT_HOST is ignored: agent shells inherit it from the GOAT server that spawned them.",
+    ),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined),
   ),
   port: Flag.Int("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Server port override (forwards to GOAT_PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("GOAT_PORT")),
+    Flag.withDescription(
+      "Server port override (forwards to GOAT_PORT). Ambient GOAT_PORT is ignored: agent shells inherit it from the GOAT server that spawned them.",
+    ),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined),
   ),
   devUrl: Flag.String("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),

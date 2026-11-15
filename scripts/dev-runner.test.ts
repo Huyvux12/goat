@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - builds real worktree layouts on disk.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -207,6 +208,50 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.HOST, undefined);
       }),
     );
+
+    it.effect("drops an inherited GOAT_HOST from a parent GOAT server", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: { GOAT_PORT: "3773", GOAT_HOST: "0.0.0.0" },
+          serverOffset: 0,
+          webOffset: 0,
+          goatHome: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.GOAT_PORT, "13773");
+        assert.equal(env.GOAT_HOST, undefined);
+      }),
+    );
+  });
+
+  describe("cli", () => {
+    it("ignores the parent GOAT server's GOAT_PORT and GOAT_HOST", () => {
+      const result = NodeChildProcess.spawnSync(
+        process.execPath,
+        ["scripts/dev-runner.ts", "dev:server", "--dry-run"],
+        {
+          cwd: NodePath.resolve(import.meta.dirname, ".."),
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            GOAT_PORT: "3773",
+            GOAT_HOST: "0.0.0.0",
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const output = `${result.stdout}${result.stderr}`;
+      assert.match(output, /serverPort=\d+ /);
+      assert.notMatch(output, /serverPort=3773 /);
+    });
   });
 
   describe("runDevRunnerWithInput", () => {
