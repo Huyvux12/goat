@@ -444,4 +444,33 @@ describe("Cursor usage limits", () => {
       expect(requested).toContain("https://api2.cursor.sh/auth/exchange_user_api_key");
     }),
   );
+
+  it.effect("does not send the server's CLI login to an instance's own usage endpoint", () =>
+    withNodeServices(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped();
+        yield* fs.makeDirectory(path.join(directory, "cursor"));
+        yield* fs.writeFileString(
+          path.join(directory, "cursor", "auth.json"),
+          '{"accessToken":"server-login-token"}',
+        );
+        const limits = yield* readCursorUsageLimits(
+          { apiEndpoint: "https://usage.private.invalid" },
+          { XDG_CONFIG_HOME: directory, HOME: directory, AGENT_CLI_CREDENTIAL_STORE: "file" },
+          true,
+          false,
+        ).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.die("must not send the server's CLI login")),
+          ),
+        );
+        expect(limits.unavailable?.reason).toBe("unsupported");
+        expect(limits.unavailable?.message).toContain("CURSOR_AUTH_TOKEN");
+      }).pipe(Effect.scoped),
+    ),
+  );
 });

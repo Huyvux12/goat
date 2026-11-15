@@ -219,6 +219,54 @@ it.layer(layerTest)("CursorDriver credentials and environment", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect(
+    "credentials the instance inherits never follow it to its own backend or endpoint",
+    () =>
+      Effect.gen(function* () {
+        const sent: Array<string> = [];
+        const client = HttpClient.make((request) =>
+          Effect.sync(() => {
+            sent.push(`${request.url} ${request.headers.authorization ?? ""}`);
+            return request.url.endsWith("/v1/me")
+              ? HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+                )
+              : HttpClientResponse.fromWeb(request, Response.json({ items: [] }));
+          }),
+        );
+        const check = (
+          id: string,
+          host: NodeJS.ProcessEnv,
+          environment: ReadonlyArray<{ name: string; value: string; sensitive: boolean }>,
+        ) =>
+          Effect.gen(function* () {
+            const instance = yield* CursorDriver.create({
+              instanceId: ProviderInstanceId.make(id),
+              displayName: "Cursor",
+              enabled: true,
+              environment,
+              config: CursorDriver.defaultConfig(),
+            }).pipe(
+              Effect.provideService(HostProcess.Environment, host),
+              Effect.provideService(HttpClient.HttpClient, client),
+            );
+            yield* instance.snapshot.refresh;
+          });
+        // The server's token, while the instance names its own backend, usage endpoint and key.
+        yield* check("cursor-own-endpoint", { CURSOR_AUTH_TOKEN: "server-token" }, [
+          { name: "CURSOR_BACKEND_URL", value: "https://private.invalid", sensitive: false },
+          { name: "CURSOR_API_ENDPOINT", value: "https://usage.private.invalid", sensitive: false },
+          { name: "CURSOR_API_KEY", value: "instance-key", sensitive: true },
+        ]);
+        // The server's key, while the instance names only its own backend.
+        yield* check("cursor-own-backend", { CURSOR_API_KEY: "server-key" }, [
+          { name: "CURSOR_BACKEND_URL", value: "https://private.invalid", sensitive: false },
+        ]);
+        expect(sent.filter((line) => /server-(token|key)/.test(line))).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("a status check reads the host environment once", () =>
     Effect.gen(function* () {
       // Every way to read the host object: enumeration, a property, `in`, a descriptor.

@@ -73,6 +73,8 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
   settings: Pick<CursorSettings, "apiEndpoint">,
   environment: NodeJS.ProcessEnv = process.env,
   allowKeychain = false,
+  /** False when the usage endpoint is the instance's own, so the server's logins do not go there. */
+  allowServerLogins = true,
 ) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   return yield* Effect.gen(function* () {
@@ -108,6 +110,13 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
         });
       }
       token = yield* exchangeCursorApiKey(apiKey);
+    } else if (!token && !allowServerLogins) {
+      return makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "unsupported",
+        message:
+          "Cursor usage on this instance's own usage endpoint needs its own CURSOR_AUTH_TOKEN.",
+      });
     } else if (!token && credentialStore === "memory") {
       return makeUnavailableUsageLimits({
         checkedAt,

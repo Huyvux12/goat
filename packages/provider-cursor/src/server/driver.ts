@@ -12,6 +12,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { readCursorUsageLimits } from "./usageLimits.ts";
 import { cursorAccountIdentity } from "./accountIdentity.ts";
+import { instanceCredentials } from "./credentialScope.ts";
 import { cursorVerificationUrl, sameCursorBackend } from "./sdkBackend.ts";
 import type { CatalogModels } from "./sessionEnvironment.ts";
 
@@ -105,6 +106,8 @@ export const CursorDriver: ProviderDriver<
     const keychain = yield* CursorKeychain.CursorKeychain;
     const sdkRunner = yield* CursorAgentSdk.CursorAgentSdkRunner;
     const hostEnvironment = yield* HostProcess.Environment;
+    // The variables this instance sets itself, as opposed to inheriting them from the server.
+    const instanceVariables = new Set((environment ?? []).map((variable) => variable.name));
     const home = yield* HostProcess.HomeDirectory;
     const currentEnvironment = Effect.suspend(() =>
       mergeProviderInstanceEnvironment(environment, hostEnvironment),
@@ -291,66 +294,68 @@ export const CursorDriver: ProviderDriver<
     );
 
     // One captured environment gives the check its key, backend and sign-in label.
-    const checkProvider = currentEnvironment.pipe(
+    const checkProvider = Effect.gen(function* () {
       // With no instance variables the merge is the live host object, so copy it once.
-      Effect.map((environment) => ({ ...environment })),
-      Effect.flatMap((processEnv) =>
-        auth.readApiKeyFor(processEnv.CURSOR_API_KEY, processEnv.CURSOR_BACKEND_URL).pipe(
-          Effect.orElseSucceed(() => undefined),
-          Effect.flatMap((apiKey) =>
-            checkCursorProviderStatus(
-              effectiveConfig,
-              {
-                ...processEnv,
-                CURSOR_API_KEY: apiKey,
-              },
-              // readApiKey prefers the environment's key, so it is the key this check uses.
-              processEnv.CURSOR_API_KEY?.trim() ? "api-key" : "browser",
-            ).pipe(
-              Effect.filterOrElse(
-                (snapshot) =>
-                  !(
-                    effectiveConfig.enabled &&
-                    snapshot.installed &&
-                    snapshot.auth.status === "authenticated"
-                  ),
-                (snapshot) =>
-                  host.settings.get.pipe(
-                    Effect.flatMap((settings) =>
-                      readCursorUsageLimits(
-                        effectiveConfig,
-                        { ...processEnv, CURSOR_API_KEY: apiKey },
-                        settings.cursorKeychainUsageEnabled,
-                      ),
-                    ),
-                    Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
-                  ),
-              ),
-              Effect.tap((provider) =>
-                Effect.sync(() => {
-                  // A failed check lists only custom models, so keep the last loaded catalog.
-                  if (provider.models.some((model) => !model.isCustom)) {
-                    catalog = {
-                      account:
-                        apiKey === undefined
-                          ? undefined
-                          : cursorAccountIdentity(apiKey, processEnv.CURSOR_BACKEND_URL),
-                      models: provider.models,
-                    };
-                  }
-                }),
-              ),
-              // The catalog's backend comes from the environment this check sends the key with.
-              Effect.provide(
-                CursorSdkCatalog.layer.pipe(
-                  Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(processEnv))),
+      const processEnv = { ...(yield* currentEnvironment) };
+      const scope = instanceCredentials({
+        instanceVariables,
+        settingsEndpoint: effectiveConfig.apiEndpoint,
+        environment: processEnv,
+        server: hostEnvironment,
+      });
+      const apiKey = yield* auth
+        .readApiKeyFor(scope.environmentKey, processEnv.CURSOR_BACKEND_URL)
+        .pipe(Effect.orElseSucceed(() => undefined));
+      // readApiKey prefers the environment's key, so it is the key this check uses.
+      const usesApiKey = Boolean(scope.environmentKey?.trim());
+      const draft = yield* checkCursorProviderStatus(
+        effectiveConfig,
+        { ...processEnv, CURSOR_API_KEY: apiKey },
+        usesApiKey ? "api-key" : "browser",
+      ).pipe(
+        Effect.filterOrElse(
+          (snapshot) =>
+            !(
+              effectiveConfig.enabled &&
+              snapshot.installed &&
+              snapshot.auth.status === "authenticated"
+            ),
+          (snapshot) =>
+            host.settings.get.pipe(
+              Effect.flatMap((settings) =>
+                readCursorUsageLimits(
+                  effectiveConfig,
+                  { ...processEnv, CURSOR_API_KEY: apiKey, CURSOR_AUTH_TOKEN: scope.usageToken },
+                  settings.cursorKeychainUsageEnabled,
+                  scope.serverLogins,
                 ),
               ),
-              Effect.map((draft) => stampWith(draft, Boolean(processEnv.CURSOR_API_KEY?.trim()))),
+              Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
             ),
+        ),
+        Effect.tap((provider) =>
+          Effect.sync(() => {
+            // A failed check lists only custom models, so keep the last loaded catalog.
+            if (provider.models.some((model) => !model.isCustom)) {
+              catalog = {
+                account:
+                  apiKey === undefined
+                    ? undefined
+                    : cursorAccountIdentity(apiKey, processEnv.CURSOR_BACKEND_URL),
+                models: provider.models,
+              };
+            }
+          }),
+        ),
+        // The catalog's backend comes from the environment this check sends the key with.
+        Effect.provide(
+          CursorSdkCatalog.layer.pipe(
+            Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(processEnv))),
           ),
         ),
-      ),
+      );
+      return stampWith(draft, usesApiKey);
+    }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(CursorKeychain.CursorKeychain, keychain),
