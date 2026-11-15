@@ -1,9 +1,15 @@
 import { expect, it, vi } from "vite-plus/test";
 
-import { START_PICK_CHANNEL } from "./GuestProtocol.ts";
+import {
+  HUMAN_INPUT_CHANNEL,
+  POINTER_DOWN_HOST_CHANNEL,
+  START_PICK_CHANNEL,
+  THUMB_PRESS_CHANNEL,
+} from "./GuestProtocol.ts";
 import "./PickPreload.ts";
 
 const ipcListeners = vi.hoisted(() => new Map<string, Array<(...args: unknown[]) => void>>());
+const ipcSends = vi.hoisted(() => ({ send: vi.fn(), sendToHost: vi.fn() }));
 
 vi.mock("electron", () => ({
   ipcRenderer: {
@@ -11,7 +17,8 @@ vi.mock("electron", () => ({
       ipcListeners.set(channel, [...(ipcListeners.get(channel) ?? []), listener]);
     },
     off: () => {},
-    send: () => {},
+    send: ipcSends.send,
+    sendToHost: ipcSends.sendToHost,
     invoke: async () => undefined,
   },
 }));
@@ -104,4 +111,17 @@ it("keeps comment keystrokes away from the page's capture-phase shortcuts", () =
 
   expect(pageShortcut).not.toHaveBeenCalled();
   expect(space.defaultPrevented).toBe(false);
+});
+
+it("a replayed thumb press tells the host page and the main process, like a click", () => {
+  for (const listener of ipcListeners.get(THUMB_PRESS_CHANNEL) ?? []) {
+    listener({}, "down", 5, 6, 3);
+  }
+  expect(ipcSends.sendToHost).toHaveBeenCalledWith(POINTER_DOWN_HOST_CHANNEL);
+  expect(ipcSends.send).toHaveBeenCalledWith(HUMAN_INPUT_CHANNEL, {
+    kind: "pointer",
+    x: 5,
+    y: 6,
+    button: 3,
+  });
 });

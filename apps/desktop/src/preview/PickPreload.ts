@@ -38,6 +38,7 @@ import {
   CANCEL_PICK_CHANNEL,
   ELEMENT_PICKED_CHANNEL,
   HUMAN_INPUT_CHANNEL,
+  POINTER_DOWN_HOST_CHANNEL,
   RECORDING_CURSOR_CHANNEL,
   RECORDING_POINTER_CHANNEL,
   RECORDING_KEY_CHANNEL,
@@ -189,6 +190,7 @@ ipcRenderer.on(
     }
     if (inFrame) return;
     replayedThumbPress = { x, y };
+    ipcRenderer.sendToHost(POINTER_DOWN_HOST_CHANNEL);
     ipcRenderer.send(HUMAN_INPUT_CHANNEL, { kind: "pointer", x, y, button });
     recordingCursor?.press({ x, y }, "down");
   },
