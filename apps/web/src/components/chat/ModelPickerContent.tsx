@@ -26,7 +26,7 @@ import { ChevronRightIcon } from "~/components/solar";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { useProviderWorkspaceSnapshotRefresh } from "./useProviderWorkspaceSnapshotRefresh";
-import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
+import { getProviderStatusMessage } from "./ProviderStatusBanner";
 import {
   modelPickerLegacySectionKey,
   modelPickerModelKey,
@@ -67,6 +67,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { shouldOfferModelPickerSetup } from "./modelPickerSetupOffer.ts";
 
 type ModelPickerItem = {
   slug: string;
@@ -100,21 +101,6 @@ export function resolveModelPickerSelectedModel(input: {
     );
   }
   return input.options.find((option) => option.slug === input.model);
-}
-
-function shouldOfferModelPickerSetup(
-  entry: ProviderInstanceEntry,
-  options: ReadonlyArray<ModelEsque>,
-): boolean {
-  return (
-    entry.enabled &&
-    entry.status !== "disabled" &&
-    hasProviderSetup(entry.snapshot) &&
-    (!isProviderInstancePickerReady(entry) ||
-      !entry.installed ||
-      entry.snapshot.auth.status === "unauthenticated" ||
-      !options.some((option) => !option.isUnavailable))
-  );
 }
 
 function adjacentModelPickerProvider(input: {
