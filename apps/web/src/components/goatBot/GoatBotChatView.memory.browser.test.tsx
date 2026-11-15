@@ -657,13 +657,13 @@ it("a chat hidden behind a task presents an open Home nowhere, and docks it agai
   const request = { key: goatBotHomeKey(environmentId, null), entry: "hidden-entry" };
   await using screen = await render(view([], false, request, undefined, true));
   // The chat is hidden, so its chip is read from the page, not by role.
-  await expect
-    .poll(() =>
+  await vi.waitFor(() =>
+    expect(
       screen.container
         .querySelector('button[aria-label="GOAT Bot home"]')
         ?.getAttribute("aria-expanded"),
-    )
-    .toBe("true");
+    ).toBe("true"),
+  );
   expect(dockedHome(screen).query()).toBeNull();
   expect(homeSheet().query()).toBeNull();
   await screen.rerender(view([], false, request, undefined, false));
