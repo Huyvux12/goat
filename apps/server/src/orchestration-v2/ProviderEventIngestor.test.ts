@@ -1,3 +1,4 @@
+import { ingestCompletedProviderTurn } from "./testkit/ingestCompletedProviderTurn.ts";
 import {
   modelSelection,
   CODEX_DRIVER,
@@ -2392,51 +2393,6 @@ layer("ProviderEventIngestorV2", (it) => {
     ),
   );
 });
-
-const ingestCompletedProviderTurn = (
-  guard: Pick<
-    Parameters<ProviderEventIngestor.ProviderEventIngestorV2Shape["ingestNormalized"]>[0],
-    "writeIfRunCurrent" | "writeIfProviderThreadOwner"
-  >,
-) =>
-  Effect.gen(function* () {
-    const now = yield* DateTime.now;
-    const eventSink = yield* EventSink.EventSinkV2;
-    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-    const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
-    const idAllocator = yield* IdAllocator.IdAllocatorV2;
-    const threadEvent = yield* threadCreatedEvent(now);
-    yield* eventSink.write({ events: [threadEvent] });
-    const providerTurnId = ProviderTurnId.make("provider-turn:locked");
-    const exit = yield* ingestor
-      .ingestNormalized({
-        providerSessionId: yield* idAllocator.allocate.providerSession({
-          providerInstanceId: modelSelection.instanceId,
-          threadId: threadEvent.threadId,
-        }),
-        providerInstanceId: modelSelection.instanceId,
-        threadId: threadEvent.threadId,
-        event: {
-          type: "provider_turn.updated",
-          driver: CODEX_DRIVER,
-          providerTurn: {
-            id: providerTurnId,
-            providerThreadId: ProviderThreadId.make("provider-thread:locked"),
-            nodeId: NodeId.make("node:locked-turn"),
-            runAttemptId: null,
-            nativeTurnRef: null,
-            ordinal: 1,
-            status: "completed",
-            startedAt: now,
-            completedAt: now,
-          },
-        },
-        ...guard,
-      })
-      .pipe(Effect.exit);
-    const projection = yield* projectionStore.getThreadProjection(threadEvent.threadId);
-    return { exit, providerTurnId, persisted: projection.providerTurns.map((turn) => turn.id) };
-  });
 
 // Neither guard matches a stored run, so a guarded write correctly commits nothing.
 const runId = RunId.make("run:locked");
