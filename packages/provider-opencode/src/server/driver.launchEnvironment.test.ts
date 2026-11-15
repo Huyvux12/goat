@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
@@ -28,6 +29,7 @@ import * as TestProviderHost from "@goat/provider-testing/TestProviderHost";
 import type { OpenCodeSettings } from "../settings.ts";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import { OpenCodeDriver } from "./driver.ts";
+import { OPENCODE_2_RESPONSES } from "./probeResponses.fixture.ts";
 
 /** A probe that reports OpenCode 2 and a server start that fails once it is reached. */
 const reachedServer = (operation: string) =>
@@ -327,5 +329,59 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
         assert.strictEqual(yield* advisory, "2.0.0");
       }).pipe(Effect.provideService(HostProcess.Environment, host), Effect.scoped);
     },
+  );
+
+  it.effect("a loopback server's CLI probes read the environment current at each check", () =>
+    Effect.gen(function* () {
+      const hostEnvironment = {
+        PATH: "/old",
+        HOME: "/fixture/opencode-test",
+        XDG_DATA_HOME: "/fixture/opencode-test",
+      };
+      // The PATH each local "opencode --version" probe ran with.
+      const versionProbes: Array<string | undefined> = [];
+      const runtime = {
+        ...openCode2Runtime,
+        runOpenCodeCommand: ({
+          args,
+          environment,
+        }: {
+          readonly args: ReadonlyArray<string>;
+          readonly environment?: NodeJS.ProcessEnv;
+        }) =>
+          Effect.sync(() => {
+            if (args.join(" ") === "--version") versionProbes.push(environment?.PATH);
+            return { stdout: "opencode v2.0.18\n", stderr: "", code: 0 };
+          }),
+      };
+      const http = HttpClient.make((request) =>
+        new URL(request.url).pathname === "/api/info"
+          ? Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(OPENCODE_2_RESPONSES["/api/info"].body, {
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            )
+          : Effect.succeed(
+              HttpClientResponse.fromWeb(request, new Response(null, { status: 404 })),
+            ),
+      );
+      const instance = yield* create({ serverUrl: "http://127.0.0.1:4096" }, http).pipe(
+        Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime),
+        Effect.provideService(HostProcess.Environment, hostEnvironment),
+        Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })),
+      );
+      yield* instance.snapshot.resolveMaintenance();
+      hostEnvironment.PATH = "/new";
+      const before = versionProbes.length;
+      yield* instance.snapshot.resolveMaintenance({ fresh: true });
+      yield* instance.snapshot.refresh;
+      const after = versionProbes.slice(before);
+      // The maintenance lookup and the check's installed-version probe, at least.
+      assert.isAtLeast(after.length, 2);
+      assert.deepStrictEqual([...new Set(after)], ["/new"]);
+    }).pipe(Effect.scoped),
   );
 });

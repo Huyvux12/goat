@@ -479,12 +479,12 @@ export const OpenCodeDriver: ProviderDriver<
       packageName: null,
     });
     const maintenanceFor = (
-      probed: typeof runtimeProbe.get,
+      probedFor: (env: NodeJS.ProcessEnv) => typeof runtimeProbe.get,
       lookupEnvironment = currentEnvironment,
     ) =>
       lookupEnvironment.pipe(
         Effect.flatMap((env) =>
-          probed.pipe(
+          probedFor(env).pipe(
             Effect.map((result) => result.generation),
             Effect.option,
             Effect.flatMap((generation) =>
@@ -502,18 +502,17 @@ export const OpenCodeDriver: ProviderDriver<
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, pathService),
       );
+    // A loopback server can outlive its CLI installation, so its maintenance probes the local CLI,
+    // under the environment of the lookup it serves.
+    const maintenanceProbe = (env: NodeJS.ProcessEnv) =>
+      isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
+        ? probeOpenCodeBinary(effectiveConfig.binaryPath, providerProbeEnvironment(env)).pipe(
+            Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
+            Effect.catch(() => runtimeProbe.get),
+          )
+        : runtimeProbe.get;
     const cachedMaintenance = yield* makeCachedProviderMaintenanceResolution(
-      maintenanceFor(
-        isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
-          ? probeOpenCodeBinary(
-              effectiveConfig.binaryPath,
-              providerProbeEnvironment(processEnv),
-            ).pipe(
-              Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
-              Effect.catch(() => runtimeProbe.get),
-            )
-          : runtimeProbe.get,
-      ),
+      maintenanceFor(maintenanceProbe),
       {
         // The probe identity fingerprints the executable and the merged environment; the hash of
         // the host snapshot resolveMaintenance provides joins it, because a native install's npm
@@ -529,19 +528,7 @@ export const OpenCodeDriver: ProviderDriver<
             install: `${identity}\0${hostEnvironmentHash(host)}`,
           })),
         ),
-        resolve: ({ env }) =>
-          maintenanceFor(
-            isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
-              ? probeOpenCodeBinary(
-                  effectiveConfig.binaryPath,
-                  providerProbeEnvironment(processEnv),
-                ).pipe(
-                  Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
-                  Effect.catch(() => runtimeProbe.get),
-                )
-              : runtimeProbe.get,
-            Effect.succeed(env),
-          ),
+        resolve: ({ env }) => maintenanceFor(maintenanceProbe, Effect.succeed(env)),
       },
     );
     const resolveMaintenance = (options?: { readonly fresh?: boolean }) =>
@@ -759,7 +746,7 @@ export const OpenCodeDriver: ProviderDriver<
               effectiveConfig.enabled && isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
                 ? probeOpenCodeBinary(
                     effectiveConfig.binaryPath,
-                    providerProbeEnvironment(processEnv),
+                    providerProbeEnvironment(environment),
                   ).pipe(
                     Effect.map((probed) => probed.version),
                     Effect.orElseSucceed(() => undefined),
