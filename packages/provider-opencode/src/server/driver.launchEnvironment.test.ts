@@ -409,12 +409,13 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
       );
       const first = yield* instance.snapshot.resolveMaintenance();
       assert.strictEqual(first.packageName, "@opencode/cli");
-      // Another install replaces the executable in place; any lookup after it must see it, so a
-      // lookup the instance makes on its own in the meantime cannot make this pass or fail.
+      // Another install replaces the executable in place. The CLI reports the new version before
+      // the file changes, so a lookup the instance makes on its own meanwhile either finds the old
+      // file under the key already cached or the new file with the new version: never a mix.
+      installed = "1.18.32\n";
       yield* fs.remove(executable);
       yield* fs.writeFileString(executable, "#!/bin/sh\n# reinstalled\n");
       yield* fs.chmod(executable, 0o755);
-      installed = "1.18.32\n";
       assert.strictEqual(
         (yield* instance.snapshot.resolveMaintenance()).packageName,
         "opencode-ai",
