@@ -104,33 +104,9 @@ export function useGoatBotHomePresentation() {
   const [viewFits, setViewFits] = useState<boolean | null>(null);
   const viewRef = (view: HTMLElement | null) => {
     if (view === null) return;
-    // A pressed pointer is a drag in progress (the task pane's or the sidebar's edge): Home's
-    // presentation waits for its release, so the drag never opens the modal sheet under it.
-    let pressed = false;
-    const measure = () => {
-      if (!pressed) setViewFits(goatBotViewFitsHome(view.getBoundingClientRect().width));
-    };
-    const press = () => {
-      pressed = true;
-    };
-    const release = () => {
-      pressed = false;
-      measure();
-    };
-    const win = view.ownerDocument.defaultView ?? window;
+    const measure = () => setViewFits(goatBotViewFitsHome(view.getBoundingClientRect().width));
     measure();
-    win.addEventListener("pointerdown", press, true);
-    win.addEventListener("pointerup", release, true);
-    win.addEventListener("pointercancel", release, true);
-    win.addEventListener("blur", release);
-    const stopObserving = observeResize(view, measure);
-    return () => {
-      win.removeEventListener("pointerdown", press, true);
-      win.removeEventListener("pointerup", release, true);
-      win.removeEventListener("pointercancel", release, true);
-      win.removeEventListener("blur", release);
-      stopObserving();
-    };
+    return observeResize(view, measure);
   };
   const presentation = goatBotHomePresentation({ windowWide, viewFits, hidden });
   return { viewRef, presentation, hidden };
