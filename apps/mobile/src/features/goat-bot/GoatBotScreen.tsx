@@ -903,6 +903,7 @@ export function GoatBotScreen(props: {
           <View className="min-h-[44px] flex-row items-center gap-2">
             {taskId === undefined ? (
               <GoatBotComposerMenu
+                shown={props.visible && props.foreground !== false && !opener.covered && !homeOpen}
                 disabled={!session.canSend}
                 attach={support ? files.target(support.maxUploadBytes) : null}
                 onNewRoutine={session.canSend ? () => draft(GOAT_BOT_NEW_ROUTINE_DRAFT) : undefined}

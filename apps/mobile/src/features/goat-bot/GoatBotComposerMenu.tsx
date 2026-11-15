@@ -17,6 +17,11 @@ const DISABLED_REASON = "Opens once this chat can send messages again.";
  * send. A task's own screen keeps its attach button, since what is written there goes to the task.
  */
 export function GoatBotComposerMenu(props: {
+  /**
+   * The chat is on screen and the app in front. Otherwise the menu is taken down, so an open one
+   * closes: Android draws it in an overlay above every screen, which would outlive the chat.
+   */
+  readonly shown: boolean;
   readonly disabled: boolean;
   /** Where picked photos and files go; null when the server takes none. */
   readonly attach: GoatBotAttachmentPickTarget | null;
@@ -53,6 +58,7 @@ export function GoatBotComposerMenu(props: {
   // A chat that cannot send keeps today's dimmed + where the server takes attachments.
   if (props.disabled) return props.attach ? button : null;
   if (actions.length === 0) return null;
+  if (!props.shown) return button;
   return (
     <Menu
       accessible

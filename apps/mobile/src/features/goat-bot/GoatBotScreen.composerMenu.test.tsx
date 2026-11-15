@@ -249,4 +249,24 @@ it("a task's own screen keeps its attach button and has no New routine", async (
   }
 });
 
+it("the chat's + menu is taken down while Home covers the chat, the chat loses focus or the app is in the background", async () => {
+  setupComposer();
+  const chat = await open();
+  try {
+    expect(chat.menu()).toEqual(["Photo Library", "New routine"]);
+    await chat.view.rerender(<GoatBotScreen visible foreground={false} />);
+    expect(chat.menu()).toEqual([]);
+    expect(chat.button("Add to message")).toBeDefined();
+    await chat.view.rerender(<GoatBotScreen visible={false} />);
+    expect(chat.menu()).toEqual([]);
+    await chat.view.rerender(<GoatBotScreen visible />);
+    expect(chat.menu()).toEqual(["Photo Library", "New routine"]);
+    await chat.press("Chip GOAT Bot");
+    expect(screenSession.homeOpen).toBe(true);
+    expect(chat.menu()).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
 vi.mock("./GoatBotHeroFace", () => ({ GoatBotHeroFace: () => null }));
