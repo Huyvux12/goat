@@ -107,8 +107,11 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   // React focus events follow the component tree, so a popup the chat portals out (Home's sheet,
   // its model picker) reports here and the task pane's or the command palette's do not.
   const chatFocus = useRef<EventTarget | null>(null);
+  // The chat's own modal focus last entered (Home's sheet, Edit bot), the one the watch below tracks.
+  const chatModal = useRef<Element | null>(null);
   const onChatFocus = (event: FocusEvent) => {
     chatFocus.current = event.target;
+    chatModal.current = event.target instanceof Element ? event.target.closest(MODAL_POPUP) : null;
   };
   const handOffFocus = useStableCallback((row: HTMLElement) => {
     const active = row.ownerDocument.activeElement;
@@ -117,21 +120,19 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
     if (active?.closest(MODAL_POPUP)) return;
     row.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
   });
-  // While the task replaces the chat, a modal of the chat that closes (Home's sheet, Edit bot)
-  // returns focus to its hidden trigger, which drops it to the page; the task heading takes it.
-  // Base UI portals each popup, tooltips included, into a child of <body>, so only that list is
-  // watched, only meanwhile, and only a modal going from shown to gone counts.
+  // While the task replaces the chat, the chat's modal closing returns focus to a hidden trigger,
+  // which drops it to the page; the task heading takes it. Base UI portals popups into children of
+  // <body>, so only that list is watched, only meanwhile; other modals and tooltips are left alone.
   const rowElement = useRef<HTMLElement | null>(null);
   const watchModalClose = (chat: HTMLElement | null) => {
     if (chat === null) return;
     const doc = chat.ownerDocument;
-    let modalShown = doc.querySelector(MODAL_POPUP) !== null;
     const observer = new MutationObserver(() => {
-      const shown = doc.querySelector(MODAL_POPUP) !== null;
-      const closed = modalShown && !shown;
-      modalShown = shown;
+      const modal = chatModal.current;
+      if (modal === null || modal.isConnected) return;
+      chatModal.current = null;
       const active = doc.activeElement;
-      if (closed && (active === null || active === doc.body))
+      if (active === null || active === doc.body)
         rowElement.current?.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
     });
     observer.observe(doc.body, { childList: true });
@@ -184,9 +185,8 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
 }
 
 /**
- * Measures the chat view itself, which a docked Home shares with the conversation. Home keeps the
- * presentation it opened in until it closes, so no resize remounts it between its panel and its
- * sheet. Only dev's 980px gate chooses again, on a chat that a task cannot hide, while measured.
+ * Measures the chat view, which a docked Home shares. Home keeps the presentation it opened in
+ * until it closes; only dev's 980px gate chooses again, on a chat a task cannot hide.
  */
 export function useGoatBotHomePresentation(panelOpen: boolean) {
   const hidden = useContext(GoatBotChatHidden);

@@ -885,3 +885,22 @@ it("the line goes when the work behind the task is cleared, and never shows when
   await userEvent.clear(page.getByRole("textbox", { name: "In modal" }));
   await expect.element(screen.getByRole("status")).toHaveTextContent("");
 });
+
+it("a command palette closing while the task replaces the chat leaves focus where it was", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  // A modal outside the chat, portalled to <body> as the command palette is.
+  const palette = document.createElement("div");
+  palette.setAttribute("data-slot", "command-dialog-popup");
+  const search = Object.assign(document.createElement("input"), { ariaLabel: "Search commands" });
+  palette.append(search);
+  await act(() => document.body.append(palette));
+  search.focus();
+  // Closing it drops focus to the page, as removing a focused element does.
+  await act(() => palette.remove());
+  expect(document.activeElement).toBe(document.body);
+});
