@@ -522,3 +522,17 @@ it.each(["Cancel", "Save"])(
     await expect.element(page.getByLabelText("At")).toHaveValue("09:00");
   },
 );
+
+it("a resize drag that narrows the chat view keeps Home docked until the pointer is released", async () => {
+  setup();
+  await using screen = await render(view());
+  await userEvent.click(homeChip(screen));
+  await expect.element(dockedHome()).toBeVisible();
+  const pointer = { bubbles: true, pointerId: 1, button: 0 };
+  await act(() => document.body.dispatchEvent(new PointerEvent("pointerdown", pointer)));
+  await resizeFrame(chatFrame(screen), 700);
+  expect(homeSheet().query()).toBeNull();
+  await expect.element(dockedHome()).toBeVisible();
+  await act(() => document.body.dispatchEvent(new PointerEvent("pointerup", pointer)));
+  await expect.element(homeSheet()).toBeVisible();
+});
