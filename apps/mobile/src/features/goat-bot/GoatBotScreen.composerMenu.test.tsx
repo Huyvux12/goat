@@ -269,4 +269,21 @@ it("the chat's + menu is taken down while Home covers the chat, the chat loses f
   }
 });
 
+it("New routine treats a box with only blank space as empty, and keeps a box with words", async () => {
+  setupComposer();
+  const chat = await open();
+  try {
+    await typeInto(chat.view.container, "  \n ");
+    await chat.press("Add to message: New routine");
+    expect(chat.typed()).toBe(ROUTINE);
+    expect(composer.alert).not.toHaveBeenCalled();
+    await typeInto(chat.view.container, "Half a thought");
+    await chat.press("Add to message: New routine");
+    expect(chat.typed()).toBe("Half a thought");
+    expect(composer.alert).toHaveBeenCalledTimes(1);
+  } finally {
+    await chat.close();
+  }
+});
+
 vi.mock("./GoatBotHeroFace", () => ({ GoatBotHeroFace: () => null }));
