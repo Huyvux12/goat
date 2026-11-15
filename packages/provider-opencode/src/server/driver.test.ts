@@ -640,6 +640,17 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
             shared: true,
             resetsAt: 1793491200000,
           },
+          {
+            id: "one",
+            limit: 20,
+            spent: 15,
+            scope: "combined",
+            per: "set",
+            coverage: "models",
+            models: [{ providerID: "opencode", modelID: "a", name: "Model A" }],
+            shared: true,
+            resetsAt: 1793491200000,
+          },
         ],
       },
       reason: undefined,
@@ -682,9 +693,16 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
         );
         assert.strictEqual(snapshot?.usageLimits?.unavailable?.reason, scenario.reason);
         if (scenario.reason === undefined) {
-          assert.strictEqual(snapshot?.usageLimits?.windows[0]?.usedPercent, 75);
           assert.strictEqual(snapshot?.usageLimits?.externalUsage?.label, "Remote workspace");
-          assert.deepStrictEqual(snapshot?.usageLimits?.windows[0]?.providerIds, []);
+          // GOAT readers know only scopeModel, so a window scoped any other way stays out.
+          assert.deepStrictEqual(
+            snapshot?.usageLimits?.windows.map((window) => [
+              window.usedPercent,
+              window.modelIds,
+              window.scopeModel,
+            ]),
+            [[75, ["opencode/a"], "opencode/a"]],
+          );
         } else {
           assert.deepStrictEqual(snapshot?.usageLimits?.windows, []);
         }

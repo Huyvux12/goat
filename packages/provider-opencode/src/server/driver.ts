@@ -33,6 +33,7 @@ import type { ProviderTextGeneration } from "@goat/provider-core/server/textGene
 import { ProviderDriverError } from "@goat/provider-core/server/errors";
 import { openCodeUsageReader, type OpenCodeUsageReaderEnv } from "./usage.ts";
 import { readOpenCodeGoUsageLimits } from "./usageLimits.ts";
+import { withGoatUsageScopes } from "./usageWindowScopes.ts";
 import { loadOpenCode2Catalog, loadOpenCode2DirectoryCatalog } from "./openCode2Catalog.ts";
 import {
   checkOpenCodeProviderStatus,
@@ -577,7 +578,7 @@ export const OpenCodeDriver: ProviderDriver<
         connection.usageLimits(host.paths.cwd),
       );
       if (limits === undefined) unsupportedUsageVersion = runtime.version;
-      return limits ?? (yield* legacyUsageLimits);
+      return limits === undefined ? yield* legacyUsageLimits : withGoatUsageScopes(limits);
     }).pipe(
       Effect.timeout("10 seconds"),
       Effect.catch(() =>
