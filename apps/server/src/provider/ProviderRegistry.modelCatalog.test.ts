@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@goat/contracts";
 import type { ProviderInstance } from "@goat/provider-core/server/driver";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@goat/provider-core/server/maintenanceResolver";
+import { ProviderDriverError } from "@goat/provider-core/server/errors";
 import * as ProviderLatestVersions from "@goat/provider-core/server/ProviderLatestVersions";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -162,6 +163,8 @@ describe("ProviderRegistry", () => {
     it.effect("invalidates model caches only for an explicit model refresh", () =>
       Effect.gen(function* () {
         const forceRefreshCalls = yield* Ref.make(0);
+        const updateEvents = yield* Ref.make<ReadonlyArray<string>>([]);
+        const hookFails = yield* Ref.make(false);
         const makeInstance = (name: string) =>
           Effect.gen(function* () {
             const driver = ProviderDriverKind.make("codex");
@@ -180,7 +183,8 @@ describe("ProviderRegistry", () => {
               skills: [],
             } as const satisfies ServerProvider;
             const invalidations = yield* Ref.make(0);
-            const maintenanceReads = yield* Ref.make<ReadonlyArray<boolean>>([]);
+            const probes = yield* Ref.make(0);
+            const maintenanceReads = yield* Ref.make<ReadonlyArray<boolean | "afterUpdate">>([]);
             const instance = {
               instanceId,
               driverKind: driver,
@@ -201,16 +205,34 @@ describe("ProviderRegistry", () => {
                     ),
                   ),
                 getSnapshot: Effect.succeed(provider),
-                refresh: Effect.succeed(provider),
+                refresh: Ref.update(probes, (count) => count + 1).pipe(Effect.as(provider)),
                 streamChanges: Stream.empty,
                 applyUsageLimits: () => Effect.void,
               },
-              invalidateCaches: Ref.update(invalidations, (count) => count + 1),
+              invalidateCaches: Ref.update(invalidations, (count) => count + 1).pipe(
+                Effect.andThen(
+                  Ref.update(updateEvents, (events) => [...events, `invalidate:${name}`]),
+                ),
+              ),
+              afterUpdate: Ref.update(maintenanceReads, (reads) => [
+                ...reads,
+                "afterUpdate" as const,
+              ]).pipe(
+                Effect.andThen(
+                  Ref.update(updateEvents, (events) => [...events, `afterUpdate:${name}`]),
+                ),
+                Effect.andThen(Ref.get(hookFails)),
+                Effect.flatMap((fails) =>
+                  fails
+                    ? Effect.fail(new ProviderDriverError({ driver, instanceId, detail: "hook" }))
+                    : Effect.void,
+                ),
+              ),
               orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
             } satisfies ProviderInstance;
             const takeMaintenanceReads = Ref.getAndSet(maintenanceReads, []);
-            return { instance, invalidations, takeMaintenanceReads };
+            return { instance, invalidations, probes, takeMaintenanceReads };
           });
         const first = yield* makeInstance("codex_first");
         const second = yield* makeInstance("codex_second");
@@ -277,6 +299,30 @@ describe("ProviderRegistry", () => {
           assert.deepStrictEqual(yield* first.takeMaintenanceReads, [true]);
           yield* registry.invalidateModelCaches({ ...workspace, fresh: true });
           assert.deepStrictEqual(yield* first.takeMaintenanceReads, [false]);
+
+          yield* first.takeMaintenanceReads;
+          yield* Ref.set(updateEvents, []);
+          yield* registry.refreshAfterUpdate(first.instance.driverKind, first.instance.instanceId);
+          assert.deepStrictEqual((yield* first.takeMaintenanceReads).slice(0, 2), [
+            "afterUpdate",
+            true,
+          ]);
+          assert.notInclude(yield* second.takeMaintenanceReads, "afterUpdate");
+          // Instances sharing the replaced service must not cache its old version.
+          assert.strictEqual((yield* Ref.get(updateEvents))[0], "afterUpdate:codex_first");
+
+          // A failed hook leaves the probe to report what is running.
+          yield* Ref.set(hookFails, true);
+          const probesBeforeFailedHook = yield* Ref.get(first.probes);
+          const refreshed = yield* registry.refreshAfterUpdate(
+            first.instance.driverKind,
+            first.instance.instanceId,
+          );
+          assert.strictEqual(yield* Ref.get(first.probes), probesBeforeFailedHook + 1);
+          assert.include(
+            refreshed.map((provider) => provider.instanceId),
+            first.instance.instanceId,
+          );
         }).pipe(
           Effect.provide(
             ProviderRegistry.layer.pipe(

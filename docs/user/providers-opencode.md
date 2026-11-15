@@ -43,6 +43,19 @@ settings. GOAT uses only that configured password for an external server; it
 does not forward a local `OPENCODE_SERVER_PASSWORD`. If connection or version checks
 fail, check the URL, credentials, and OpenCode version, then refresh provider status.
 
+When **Server URL** points to a locally running server (such as `127.0.0.1`),
+the update button upgrades its installed CLI. If that server is this machine's
+OpenCode background service, GOAT then restarts it on the new version. The URL
+must use the service's own protocol, host, and port. For a service listening on
+`0.0.0.0` use `127.0.0.1`, and for `[::]` use `[::1]`.
+
+Restarting interrupts running turns, and the service then runs with GOAT's
+environment. Set any variables it needs with `opencode service set env <name> <value>`.
+
+GOAT does not restart any other server, including the background service
+reached through `localhost`. That server can still report the previous version
+until you restart it.
+
 After a lost connection, send another prompt to reconnect to the same OpenCode
 session.
 

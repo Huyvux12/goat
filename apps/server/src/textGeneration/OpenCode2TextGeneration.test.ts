@@ -270,6 +270,7 @@ it.layer(layer)("OpenCode v2 memory generation", (it) => {
             Effect.sync(() => {
               acquisitions++;
             }).pipe(Effect.andThen(Effect.die("Uncertified server must not be acquired."))),
+          forget: Effect.void,
         });
         const textGeneration = yield* OpenCode2TextGeneration.make(
           context === undefined
@@ -301,6 +302,7 @@ it.layer(layer)("OpenCode v2 memory generation", (it) => {
         const server = OpenCode2Server.OpenCode2Server.of({
           withConnection: () => Effect.die("Memory uses its own isolated server."),
           withMemoryConnection: () => Effect.fail(startError),
+          forget: Effect.void,
         });
         const textGeneration = yield* OpenCode2TextGeneration.make({
           memoryRunnerContext: memoryContext,
@@ -443,6 +445,7 @@ it.layer(layer)("OpenCode v2 memory generation", (it) => {
     const server = OpenCode2Server.OpenCode2Server.of({
       withMemoryConnection: (_operation, _providerId, use) => use(connection),
       withConnection: () => Effect.die("Memory must never borrow the shared server."),
+      forget: Effect.void,
     });
     const generation = yield* OpenCode2TextGeneration.make({
       memoryRunnerContext: memoryContext,
