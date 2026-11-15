@@ -1279,7 +1279,12 @@ export const make = Effect.gen(function* () {
         homes.push({ homePath, providerInstanceId: instanceId });
       }
 
-      const codexState = source === "codex" ? yield* readCodexProjectState(stateHomes) : null;
+      const codexState =
+        source === "codex"
+          ? yield* readCodexProjectState(stateHomes, (cwd) =>
+              isExcludedProjectPath(path.resolve(expandHomePath(cwd.trim(), homeDir))),
+            )
+          : null;
       truncated ||= codexState?.complete === false;
       if (source === "codex") collectedCodexCwdByThread = codexState?.cwdByThread ?? null;
 
