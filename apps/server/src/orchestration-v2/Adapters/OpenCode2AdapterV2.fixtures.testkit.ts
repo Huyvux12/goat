@@ -326,6 +326,8 @@ export const resumed = (
     readonly goal?: OrchestrationV2ProviderThread["goal"];
     readonly external?: boolean;
     readonly supervised?: boolean;
+    readonly processExit?: Effect.Effect<void>;
+    readonly beforeResponse?: (path: string) => Effect.Effect<void>;
     readonly memoryInstructions?: (value: string) => Response;
     readonly onInstructions?: (key: string, value: string) => void;
     readonly replayGate?: ProviderReplayGate;
@@ -378,6 +380,10 @@ export const resumed = (
         ...(options?.onPrompt === undefined ? {} : { onPrompt: options.onPrompt }),
         ...(options?.borrowers === undefined ? {} : { borrowers: options.borrowers }),
         ...(options?.external === undefined ? {} : { external: options.external }),
+        ...(options?.processExit === undefined ? {} : { processExit: options.processExit }),
+        ...(options?.beforeResponse === undefined
+          ? {}
+          : { beforeResponse: options.beforeResponse }),
         ...(options?.replayGate === undefined ? {} : { replayGate: options.replayGate }),
         ...(options?.attachmentsDir === undefined
           ? {}
