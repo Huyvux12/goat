@@ -29,15 +29,19 @@ function emit(type: "transitionStart" | "transitionEnd" | "focus", closing = fal
   });
 }
 
-import { useHomeRouteVisible } from "./home-route-visibility";
+import { useHomeRouteVisibility } from "./home-route-visibility";
 
 function setup() {
   mocks.focused = true;
   mocks.listeners.clear();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const state = { visible: undefined as boolean | undefined };
-  const report = (visible: boolean) => {
-    state.visible = visible;
+  const state = {
+    visible: undefined as boolean | undefined,
+    runWhenCovered: (_action: () => void) => {},
+  };
+  const report = (home: ReturnType<typeof useHomeRouteVisibility>) => {
+    state.visible = home.visible;
+    state.runWhenCovered = home.runWhenCovered;
   };
   const root = createRoot(document.createElement("div"));
   act(() => root.render(<Probe report={report} />));
@@ -49,8 +53,10 @@ function setup() {
   };
 }
 
-function Probe(props: { readonly report: (visible: boolean) => void }) {
-  props.report(useHomeRouteVisible());
+function Probe(props: {
+  readonly report: (home: ReturnType<typeof useHomeRouteVisibility>) => void;
+}) {
+  props.report(useHomeRouteVisibility());
   return null;
 }
 
@@ -73,4 +79,32 @@ it("keeps the phone thread list live after a round trip through another tab", ()
   mocks.focused = false;
   emit("transitionEnd", true);
   expect(home.state.visible, "the list under a Thread holds its rows").toBe(false);
+});
+
+it("waits for the page opening over Home to finish covering it, then runs once", () => {
+  using home = setup();
+  let clears = 0;
+  home.state.runWhenCovered(() => (clears += 1));
+  emit("transitionStart", true);
+  expect(clears).toBe(0);
+  emit("transitionEnd", true);
+  expect(clears, "a tab slot's late disappear leaves Home focused").toBe(0);
+  mocks.focused = false;
+  emit("transitionEnd", true);
+  expect(clears).toBe(1);
+  emit("transitionStart", false);
+  emit("transitionEnd", true);
+  expect(clears).toBe(1);
+});
+
+it("drops the action when Home reappears before it is covered", () => {
+  using home = setup();
+  let clears = 0;
+  home.state.runWhenCovered(() => (clears += 1));
+  emit("transitionStart", true);
+  emit("transitionStart", false);
+  emit("transitionEnd", false);
+  mocks.focused = false;
+  emit("transitionEnd", true);
+  expect(clears).toBe(0);
 });
