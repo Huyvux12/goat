@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import {
   MIN_SCHEDULED_TASK_INTERVAL_MS,
   ScheduledTask,
+  ScheduledTaskListResult,
   ScheduledTaskUpsertInput,
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
@@ -246,6 +247,56 @@ describe("scheduled run outcomes", () => {
       Schema.decodeUnknownSync(Schema.fromJsonString(old))(Schema.encodeSync(codec)(output))
         .lastRunStatus,
     ).toBe("running");
+  });
+
+  const run = (index: number, overrides: Record<string, unknown> = {}) => ({
+    firingId: `scheduled-task:goat-bot-check-in:thread:${index}:manual`,
+    status: "completed",
+    requestedAt: task.createdAt,
+    completedAt: task.updatedAt,
+    ...overrides,
+  });
+  const routine = {
+    ...task,
+    goatBotRoutine: true,
+    recentRuns: [
+      run(2, { quiet: true, conversation: { threadId: "bot-thread", inputId: "input-2" } }),
+      run(1, { status: "failed" }),
+    ],
+  };
+  const decodeList = Schema.decodeUnknownSync(Schema.fromJsonString(ScheduledTaskListResult));
+  // The list as clients shipped before recentRuns decode it: today's fields, read off the wire.
+  const decodeShippedList = Schema.decodeUnknownSync(
+    Schema.fromJsonString(
+      Schema.Struct({
+        tasks: Schema.Array(
+          ScheduledTask.mapFields(({ recentRuns: _recent, ...fields }) => fields),
+        ),
+        timeZone: ScheduledTaskListResult.fields.timeZone,
+      }),
+    ),
+  );
+  it("a routine's recent runs decode, and older clients ignore them", () => {
+    const wire = JSON.stringify({ tasks: [routine], timeZone: "Asia/Seoul" });
+    const [decoded] = decodeList(wire).tasks;
+    expect(decoded?.recentRuns).toEqual(routine.recentRuns);
+    const { recentRuns: _recent, ...shipped } = decoded ?? {};
+    expect(decodeShippedList(wire).tasks).toEqual([shipped]);
+  });
+  it("a recentRuns that is not an array drops the history and keeps the routine", () => {
+    const [decoded] = decodeList(
+      JSON.stringify({ tasks: [{ ...routine, recentRuns: { firingId: "firing" } }] }),
+    ).tasks;
+    expect(decoded).toHaveProperty("id", "task");
+    expect(decoded).not.toHaveProperty("recentRuns");
+  });
+  it("keeps every readable run: more than seven, and a status added later", () => {
+    const runs = Array.from({ length: 9 }, (_, index) => run(index));
+    const future = run(9, { status: "paused_by_policy" });
+    const [decoded] = decodeList(
+      JSON.stringify({ tasks: [{ ...routine, recentRuns: [future, { status: 1 }, ...runs] }] }),
+    ).tasks;
+    expect(decoded?.recentRuns).toEqual([future, ...runs]);
   });
 });
 
