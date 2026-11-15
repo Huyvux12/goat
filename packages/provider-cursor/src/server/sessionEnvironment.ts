@@ -41,8 +41,10 @@ export const forSession = (source: Source, auth: SessionAuth = {}) =>
       const environmentKey = copy.CURSOR_API_KEY?.trim() || undefined;
       const key: Effect.Effect<string | undefined, ProviderSetupError> =
         auth.resolveSessionApiKey?.(environmentKey) ?? Effect.succeed(environmentKey);
-      return key.pipe(
-        Effect.map((apiKey) => ({
+      // Decided once: the SDK's transport cannot change, so a running session never re-reads it.
+      const transport = auth.agentTransportMatches?.(copy) ?? Effect.succeed(true);
+      return Effect.all([key, transport]).pipe(
+        Effect.map(([apiKey, transportMatches]) => ({
           environment: copy,
           apiKey,
           validate: (auth.validateSessionApiKey?.(apiKey, environmentKey) ?? Effect.void).pipe(
@@ -62,18 +64,14 @@ export const forSession = (source: Source, auth: SessionAuth = {}) =>
               ),
             ),
             Effect.andThen(
-              (auth.agentTransportMatches?.(copy) ?? Effect.succeed(true)).pipe(
-                Effect.flatMap((matches) =>
-                  matches
-                    ? Effect.void
-                    : Effect.fail(
-                        new CursorAgentSdkRunnerError({
-                          method: "open",
-                          cause: new Error(CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE),
-                        }),
-                      ),
-                ),
-              ),
+              transportMatches
+                ? Effect.void
+                : Effect.fail(
+                    new CursorAgentSdkRunnerError({
+                      method: "open",
+                      cause: new Error(CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE),
+                    }),
+                  ),
             ),
           ),
         })),

@@ -212,7 +212,7 @@ describe("CursorTextGeneration", () => {
         modelSelection: createModelSelection(ProviderInstanceId.make("cursor"), "auto"),
       };
       const error = yield* generation.generateCommitMessage(input).pipe(Effect.flip);
-      expect(error.detail).toContain("Restart GOAT");
+      expect(error.detail).toContain("All Cursor agents share one transport");
       expect(cursorSdkMock.create).not.toHaveBeenCalled();
     }).pipe(
       Effect.provide(

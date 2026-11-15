@@ -26,6 +26,20 @@ it.effect(
         { agentTransportMatches: () => Effect.succeed(false) },
       );
       const error = yield* session.validate.pipe(Effect.flip);
-      expect(String(error.cause)).toContain("Restart GOAT");
+      expect(String(error.cause)).toContain("All Cursor agents share one transport");
     }),
+);
+
+it.effect("a session decides its agent transport once, when it opens", () =>
+  Effect.gen(function* () {
+    let reads = 0;
+    const session = yield* SessionEnvironment.forSession(
+      {},
+      { agentTransportMatches: () => Effect.sync(() => ++reads === 1) },
+    );
+    // A running session's agent reopens validate again; the file may have changed since it opened.
+    yield* session.validate;
+    yield* session.validate;
+    expect(reads).toBe(1);
+  }),
 );

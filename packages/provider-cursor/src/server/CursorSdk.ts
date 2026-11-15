@@ -45,7 +45,7 @@ const decodeCursorCliConfig = Schema.decodeEffect(
 
 /** Shown when a new session's Cursor configuration selects another transport than GOAT loaded. */
 export const CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE =
-  "Cursor's agent transport setting (network.useHttp1ForAgent) differs from the one GOAT started with. Restart GOAT to use it.";
+  "Cursor's agent transport setting (network.useHttp1ForAgent in cli-config.json) differs from the one GOAT read from the server's Cursor configuration at startup. All Cursor agents share one transport: make this instance's Cursor configuration agree with the server's, or change the server's and restart GOAT.";
 
 // Proxies without HTTP/2 need this Cursor CLI setting, which the SDK never reads itself.
 const readCursorCliUseHttp1ForAgent = Effect.fnUntraced(function* (environment: NodeJS.ProcessEnv) {
