@@ -103,6 +103,8 @@ export const replaceOutdatedService = Effect.fn("OpenCode2Service.replaceOutdate
 
     // `ensure` with a version would kill every new service whose version never matches the probe,
     // and being interrupted between the stop and the start would leave no service running.
+    // The library keeps its contender child private: it emits 'error' only for a failed spawn,
+    // which ensure reports, and stops processes by pid, never through the child.
     yield* Service.stop({ file, pty: "handoff" }).pipe(
       Effect.andThen(
         Service.ensure({
