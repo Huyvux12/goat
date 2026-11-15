@@ -332,11 +332,13 @@ export function NewTaskDraftScreen(props: {
       navigation.goBack();
     }
   }, [cancelledIncomingShareId, navigation, props.incomingShareId]);
+  // A new object on each flow render; the effect only needs to know whether it is set.
+  const routeDraftOpenable = flow.unopenableRouteDraft === null;
   useEffect(() => {
     if (!isProjectPickerReturnActive) {
       return;
     }
-    if (requestedInitialProjectAvailable && flow.unopenableRouteDraft === null) {
+    if (requestedInitialProjectAvailable && routeDraftOpenable) {
       // oxlint-disable-next-line react/set-state-in-effect -- Ends the return-to-picker flow once the requested project arrives from the catalog.
       setIsReturningToProjectPicker(false);
       return;
@@ -353,11 +355,11 @@ export function NewTaskDraftScreen(props: {
     return () => cancelAnimationFrame(frame);
   }, [
     isProjectPickerReturnActive,
-    flow.unopenableRouteDraft,
     navigation,
     pickerDraftId,
     props.incomingShareId,
     requestedInitialProjectAvailable,
+    routeDraftOpenable,
   ]);
   useEffect(() => {
     if (!shareImportMountedRef.current) {
