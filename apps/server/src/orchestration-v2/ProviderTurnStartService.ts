@@ -629,6 +629,7 @@ export const layer: Layer.Layer<
         attemptId: attempt.id,
         providerThreadId: providerThread.id,
         runOrdinal: run.ordinal,
+        worktreePath: projection.thread.worktreePath,
         inheritedBackgroundTurnItems,
       });
       const { isCurrentAttemptInStatus } = runControls;
@@ -1407,6 +1408,7 @@ export const layer: Layer.Layer<
             !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
         shouldStartProviderTurn: runControls.shouldStartProviderTurn,
         shouldFinalizeRun: runControls.shouldFinalizeRun,
+        hasWorkspaceMoved: runControls.hasWorkspaceMoved,
         hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
         loadRunInterruptReason: runControls.loadRunInterruptReason,
         message: {

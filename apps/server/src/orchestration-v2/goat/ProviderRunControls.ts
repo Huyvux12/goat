@@ -21,6 +21,7 @@ export const makeProviderRunControls = (
     readonly attemptId: OrchestrationV2RunAttempt["id"];
     readonly providerThreadId: OrchestrationV2ProviderThread["id"];
     readonly runOrdinal: number;
+    readonly worktreePath: string | null;
     readonly inheritedBackgroundTurnItems: ReturnType<
       typeof RunExecutionService.selectInheritedBackgroundTurnItems
     >;
@@ -48,6 +49,10 @@ export const makeProviderRunControls = (
           Effect.catchCause(() => Effect.succeed(input.inheritedBackgroundTurnItems)),
         ),
       shouldStartProviderTurn: () => isCurrentAttemptInStatus("running"),
+      hasWorkspaceMoved: () =>
+        projectionStore
+          .getRuntimeRecoveryProjection(input.threadId)
+          .pipe(Effect.map((current) => current.thread.worktreePath !== input.worktreePath)),
       shouldFinalizeRun: () =>
         projectionStore.getRuntimeRecoveryProjection(input.threadId).pipe(
           Effect.map((current) => {
