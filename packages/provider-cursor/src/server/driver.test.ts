@@ -922,9 +922,7 @@ it.layer(layerTest)("CursorDriver", (it) => {
           Effect.provideService(HttpClient.HttpClient, client),
         );
         yield* instance.snapshot.refresh;
-        // Usage limits read their own endpoint (CURSOR_API_ENDPOINT); this checks the catalog's.
-        const catalogRequests = requested.filter((url) => /\/v1\/(me|models)$/.test(url));
-        expect(catalogRequests.toSorted()).toEqual([
+        expect(requested.toSorted()).toEqual([
           "https://private.invalid/v1/me",
           "https://private.invalid/v1/models",
         ]);

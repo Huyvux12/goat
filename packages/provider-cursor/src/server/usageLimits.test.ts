@@ -339,4 +339,24 @@ describe("Cursor usage limits", () => {
       }
     }),
   );
+
+  it.effect("does not exchange an API key at Cursor's service for a private backend", () =>
+    Effect.gen(function* () {
+      const limits = yield* withNodeServices(
+        readCursorUsageLimits(
+          { apiEndpoint: "" },
+          { CURSOR_API_KEY: "api-key", CURSOR_BACKEND_URL: "https://private.invalid" },
+          true,
+        ).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.die("must not send a private backend's key to Cursor")),
+          ),
+        ),
+      );
+      expect(limits.unavailable?.reason).toBe("unsupported");
+      expect(limits.unavailable?.message).toContain("default Cursor backend");
+    }),
+  );
 });

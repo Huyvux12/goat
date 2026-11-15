@@ -95,6 +95,19 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
           message: "Cursor usage for an API key requires the default Cursor endpoint.",
         });
       }
+      // The exchange is Cursor's own service; a key issued by another backend stays with it.
+      if (
+        (environment.CURSOR_BACKEND_URL?.trim() || DEFAULT_CURSOR_API_ENDPOINT).replace(
+          /\/+$/,
+          "",
+        ) !== DEFAULT_CURSOR_API_ENDPOINT
+      ) {
+        return makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "unsupported",
+          message: "Cursor usage for an API key requires the default Cursor backend.",
+        });
+      }
       token = yield* exchangeCursorApiKey(apiKey);
     } else if (!token && credentialStore === "memory") {
       return makeUnavailableUsageLimits({
