@@ -92,6 +92,8 @@ interface AttachedTab {
   readonly onNewDocument: () => void;
   /** Stops waiting for the first page; set until the tab is announced. */
   stopWaiting: (() => void) | null;
+  /** A failure reported before the tab was announced; the server keeps one only for an attached tab. */
+  heldFailure: PreviewAutomationLoadError | null;
 }
 
 export class DesktopBrowserHost extends Context.Service<
@@ -530,6 +532,7 @@ export const make = Effect.gen(function* () {
         if (tab.screenshotTurn !== null) nextScreenshot(tab);
       },
       stopWaiting: null,
+      heldFailure: null,
     };
     tabs.set(id, tab);
     debuggee.debugger.on("message", tab.onMessage);
@@ -538,6 +541,8 @@ export const make = Effect.gen(function* () {
       emit({ type: "attached", ...key });
       const shown = shownTabs.get(id);
       if (shown !== undefined) emit({ type: "shown", ...key, shown });
+      if (tab.heldFailure !== null) emit({ type: "loadFailed", ...key, ...tab.heldFailure });
+      tab.heldFailure = null;
     };
     if (!debuggee.webContents.isLoadingMainFrame()) {
       announce();
@@ -591,7 +596,10 @@ export const make = Effect.gen(function* () {
   };
 
   const loadFailed: DesktopBrowserHost["Service"]["loadFailed"] = (key, failure) => {
-    if (tabs.has(keyOf(key))) emit({ type: "loadFailed", ...key, ...failure });
+    const tab = tabs.get(keyOf(key));
+    if (tab === undefined) return;
+    if (tab.stopWaiting !== null) tab.heldFailure = failure;
+    else emit({ type: "loadFailed", ...key, ...failure });
   };
 
   const handleCommandLine = (line: string) =>

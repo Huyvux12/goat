@@ -247,6 +247,26 @@ describe("DesktopBrowserHost", () => {
       }),
   );
 
+  it.effect("reports a first page's load failure after announcing the tab", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const loading = makeDebuggee({ loading: true });
+      const failure = { url: "http://localhost/", code: -102, description: "Failed" };
+      // The manager listens for failures before it attaches the guest, so it reports first.
+      loading.webContents.on("did-fail-load", () => host.loadFailed(key, failure));
+      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
+
+      yield* Effect.yieldNow;
+      host.attach(key, loading.tab);
+      loading.failLoad(-102);
+
+      expect(yield* Fiber.join(reader)).toEqual([
+        { type: "attached", ...key },
+        { type: "loadFailed", ...key, ...failure },
+      ]);
+    }),
+  );
+
   it.effect(
     "announces a first page that never comes up, but never a tab closed or destroyed first",
     () =>
