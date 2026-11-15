@@ -110,9 +110,8 @@ export function useGoatBotHomePresentation() {
     const measure = () => {
       if (!pressed) setViewFits(goatBotViewFitsHome(view.getBoundingClientRect().width));
     };
-    const press = (event: PointerEvent) => {
-      // Only a primary press can drag; a context menu may swallow another button's release.
-      if (event.button === 0 && event.isPrimary) pressed = true;
+    const press = () => {
+      pressed = true;
     };
     const release = () => {
       pressed = false;
