@@ -24,8 +24,6 @@ import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  relativizeWorkLabelPaths,
-  workEntryRowLabel,
   buildThreadFeed,
   threadFeedCompactionLabels,
   createThreadFeedCache,
@@ -39,6 +37,7 @@ import {
   isPendingUserInputOptionSelected,
   buildPendingUserInputAnswers,
 } from "./threadActivity";
+import { relativizeWorkLabelPaths, workEntryRowLabel } from "./workEntryRowLabel";
 
 const threadId = ThreadId.make("thread-1");
 const sourceThreadId = ThreadId.make("thread-source");
