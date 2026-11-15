@@ -17,6 +17,7 @@ import {
 } from "./gitHubReferenceSearch.ts";
 import { matchesUnsortedListing, searchQuery } from "./gitHubPullRequestSearch.ts";
 import { toPullRequestActionSummary } from "./gitHubActionSummary.ts";
+import { gitHubReactionContent } from "./gitHubReactionContent.ts";
 import {
   GitHubBranchDeletionRefusedError,
   GitHubMergeHeadChangedError,
@@ -124,7 +125,6 @@ import {
   decodePullRequestStacksJson,
   buildLabelRequest,
   PULL_REQUEST_SEARCH_MAX_ROWS,
-  gitHubReactionContent,
   reviewThreadConversation,
   type GitHubPullRequestActivity,
   type GitHubPullRequestActivityPage,
