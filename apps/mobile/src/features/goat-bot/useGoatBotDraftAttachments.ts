@@ -1,4 +1,7 @@
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@goat/contracts";
 import { useEffect, useRef, useState } from "react";
+
+import * as Dialog from "../../components/ui/Dialog";
 
 import { retainComposerAttachmentFile } from "../../lib/composerAttachmentFiles";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
@@ -19,6 +22,8 @@ export function useGoatBotDraftAttachments(shown: boolean) {
   const [intake, setIntake] = useState(0);
   const draftFiles = useRef(new Map<string, () => void>());
   const pickerLifetime = useRef<AbortController | null>(null);
+  // Files the message holds, counted as they arrive: two picks can answer before either renders.
+  const held = useRef(0);
   const releaseAll = () => {
     for (const release of draftFiles.current.values()) release();
     draftFiles.current.clear();
@@ -53,7 +58,17 @@ export function useGoatBotDraftAttachments(shown: boolean) {
         releaseGoatBotAttachments(picked);
         return;
       }
-      for (const attachment of picked) {
+      const room = Math.max(0, PROVIDER_SEND_TURN_MAX_ATTACHMENTS - held.current);
+      const kept = picked.slice(0, room);
+      if (kept.length < picked.length) {
+        releaseGoatBotAttachments(picked.slice(room));
+        Dialog.alert(
+          "Could not attach file",
+          `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`,
+        );
+      }
+      held.current += kept.length;
+      for (const attachment of kept) {
         if (attachment.fileUri !== undefined) {
           draftFiles.current.set(
             attachment.id,
@@ -63,10 +78,11 @@ export function useGoatBotDraftAttachments(shown: boolean) {
           );
         }
       }
-      setAttachments((current) => [...current, ...picked]);
+      setAttachments((current) => [...current, ...kept]);
     },
   });
   const remove = (id: string) => {
+    if (attachments.some((attachment) => attachment.id === id)) held.current -= 1;
     draftFiles.current.get(id)?.();
     draftFiles.current.delete(id);
     releaseGoatBotAttachments(attachments.filter((attachment) => attachment.id === id));
@@ -74,6 +90,7 @@ export function useGoatBotDraftAttachments(shown: boolean) {
   };
   /** The message went out with its files: this draft no longer owns them. */
   const sent = () => {
+    held.current = 0;
     releaseAll();
     setAttachments([]);
   };

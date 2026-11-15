@@ -218,6 +218,33 @@ it("a menu taken down while open comes back closed", async () => {
   }
 });
 
+it("two picks together never fill the message past its attachment limit; the extra files are released", async () => {
+  setup();
+  const first = heldPick();
+  const second = heldPick();
+  const view = await render();
+  try {
+    await view.press("Photo Library");
+    await view.press("Photo Library");
+    const batch = (prefix: string) =>
+      Array.from({ length: 60 }, (_, index) => photo(`${prefix}${index}`));
+    const one = batch("a");
+    const two = batch("b");
+    await first(one);
+    await second(two);
+    expect(view.files().split(",")).toHaveLength(100);
+    expect(native.release).toHaveBeenCalledWith(two.slice(40));
+    expect(isComposerAttachmentFileRetained("file:///documents/b40.jpg")).toBe(false);
+    expect(native.alert).toHaveBeenCalledWith(
+      "Could not attach file",
+      "You can attach up to 100 files per message.",
+    );
+    expect(view.busy()).toBe("0");
+  } finally {
+    await view.unmount();
+  }
+});
+
 it("a removed file is deleted, and a sent message's files stay with whoever sends them", async () => {
   setup();
   const answer = heldPick();
