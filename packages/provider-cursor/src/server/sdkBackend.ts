@@ -2,7 +2,7 @@ const PRODUCTION_BACKEND = "https://api2.cursor.sh";
 let initializedBackend: string | undefined;
 
 /** A Cursor backend URL as GOAT compares it: the production backend when unset, no trailing slash. */
-export const normalizeSdkBackend = (backend: string | undefined) =>
+const normalizeSdkBackend = (backend: string | undefined) =>
   (backend || PRODUCTION_BACKEND).replace(/\/+$/, "");
 
 /** Which backend a URL names, for deciding where a credential may go: case and :443 do not matter. */
