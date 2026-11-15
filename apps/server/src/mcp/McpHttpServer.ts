@@ -99,6 +99,7 @@ import * as OpenCodexManagedUpdate from "../hub/OpenCodexManagedUpdate.ts";
 import * as OpenCodexSync from "../hub/OpenCodexSync.ts";
 import * as OpenCodexUpdateHost from "../hub/OpenCodexUpdateHost.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as PullRequestWatchService from "../pullRequest/PullRequestWatchService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as RemoteReportService from "../remoteReports/RemoteReportService.ts";
 import * as OriginBoundDeleteService from "../remoteReports/OriginBoundDeleteService.ts";
@@ -968,7 +969,9 @@ export const catalogRegistrations = {
   computerUse: toolkitRegistration(ComputerUseToolkit, ComputerUseHandlers.layer),
   screen: imageToolRegistration(registerScreenRun(), ScreenHandlers.layer),
   channel: toolkitRegistration(ChannelToolkit, ChannelHandlers.layer),
-  pullRequests: toolkitRegistration(PullRequestsToolkit, PullRequestsHandlers.layer),
+  pullRequests: toolkitRegistration(PullRequestsToolkit, PullRequestsHandlers.layer).pipe(
+    Layer.provide(PullRequestWatchService.layer),
+  ),
   deviceStandard: toolkitRegistration(DeviceStandardToolkit, DeviceHandlers.layerStandard),
   deviceScreenshot: imageToolRegistration(
     registerDeviceScreenshot(),
