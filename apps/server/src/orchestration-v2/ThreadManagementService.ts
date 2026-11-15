@@ -73,6 +73,9 @@ import * as ComputerUseLeases from "../cua/ComputerUseLeases.ts";
 import * as CuaDriver from "../cua/CuaDriver.ts";
 import * as ComputerUseOrigin from "../cua/ComputerUseOrigin.ts";
 import { currentMemoryAccess } from "../memory/MemoryAccess.ts";
+import { ThreadManagementBackgroundWaitError } from "./threadManagementBackgroundWait.ts";
+
+export { ThreadManagementBackgroundWaitError };
 
 /**
  * "steer_when_ready" is how another thread's agent talks to a thread: like steering, whatever
@@ -369,26 +372,6 @@ export class ThreadManagementProviderInstanceDisabledError extends Schema.Tagged
 ) {
   override get message(): string {
     return `Provider instance "${this.instanceId}" is disabled for project ${this.projectId}.`;
-  }
-}
-
-export class ThreadManagementBackgroundWaitError extends Schema.TaggedError<ThreadManagementBackgroundWaitError>()(
-  "ThreadManagementBackgroundWaitError",
-  {
-    threadId: ThreadId,
-    reason: Schema.Literals(["unsupported", "unavailable", "failed"]),
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message(): string {
-    switch (this.reason) {
-      case "unsupported":
-        return "This provider cannot mark background work as awaited.";
-      case "unavailable":
-        return "This thread has no live provider session.";
-      case "failed":
-        return "Failed to update the awaited background work.";
-    }
   }
 }
 
