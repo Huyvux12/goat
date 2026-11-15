@@ -10,7 +10,11 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
-import { GoatBotHomeDockedRegistry, useGoatBotHomePresentation } from "./goatBotLayout";
+import {
+  GOAT_BOT_HOME_WIDTH_CLASS,
+  GoatBotHomeDockedRegistry,
+  useGoatBotHomePresentation,
+} from "./goatBotLayout";
 
 import { cn } from "~/lib/utils";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
@@ -615,7 +619,7 @@ function GoatBotChatViewContent({
           ref={registerHomeDocked}
           data-goat-bot-home-docked
           aria-label={`${title} work`}
-          className="flex w-88 shrink-0 border-l border-border"
+          className={cn("flex shrink-0 border-l border-border", GOAT_BOT_HOME_WIDTH_CLASS)}
         >
           <GoatBotWorkPanel
             key={homeKey}

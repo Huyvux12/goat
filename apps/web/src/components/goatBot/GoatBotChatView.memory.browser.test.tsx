@@ -817,3 +817,52 @@ it("Home in its sheet over the task asks nothing of the hidden composer: its dra
   await screen.rerender(view([], false, null, undefined, false, true));
   await expect.element(page.getByRole("button", { name: "Ask to change" })).toBeEnabled();
 });
+
+/** The interface font size, as Settings > Appearance sets it on the root; restored on dispose. */
+function interfaceFontSize(px: number): Disposable {
+  const before = document.documentElement.style.fontSize;
+  document.documentElement.style.fontSize = `${px}px`;
+  return {
+    [Symbol.dispose]: () => {
+      document.documentElement.style.fontSize = before;
+    },
+  };
+}
+
+it("at a 20px interface size Home docks only in a 940px chat view, where it is 440px and the chat keeps 500px", async () => {
+  using _font = interfaceFontSize(20);
+  const { view } = setup();
+  await using screen = await render(view());
+  const chip = screen.getByRole("button", { name: "GOAT Bot home" });
+  await resizeFrame(chatFrame(screen), 939);
+  await userEvent.click(chip);
+  await expect.element(homeSheet()).toBeVisible();
+  expect(dockedHome(screen).query()).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(homeSheet()).not.toBeInTheDocument();
+  await resizeFrame(chatFrame(screen), 940);
+  await userEvent.click(chip);
+  await expect.element(dockedHome(screen)).toBeVisible();
+  const home = dockedHome(screen).element().getBoundingClientRect().width;
+  expect(home).toBe(440);
+  expect(940 - home).toBe(500);
+});
+
+it("a change of the interface size is measured again before Home next opens", async () => {
+  const { view } = setup();
+  await using screen = await render(view());
+  await resizeFrame(chatFrame(screen), 900);
+  const before = document.documentElement.style.fontSize;
+  using _restore = {
+    [Symbol.dispose]: () => {
+      document.documentElement.style.fontSize = before;
+    },
+  };
+  // Docks at 16px (900 >= 752); at 20px Home needs 940.
+  await act(() => {
+    document.documentElement.style.fontSize = "20px";
+  });
+  await userEvent.click(screen.getByRole("button", { name: "GOAT Bot home" }));
+  await expect.element(homeSheet()).toBeVisible();
+  expect(dockedHome(screen).query()).toBeNull();
+});

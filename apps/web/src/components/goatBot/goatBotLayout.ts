@@ -6,8 +6,10 @@ import { observeResize } from "~/lib/observeResize";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "~/rightPanelLayout";
 import { useStableCallback } from "~/hooks/useStableCallback";
 
-/** Below this the composer wraps its controls and its text field shrinks to a few words. */
-const GOAT_BOT_CHAT_MIN_WIDTH = 400;
+// The interface font size sets the root size (12-20px), and the composer's controls scale with it
+// (about 15rem), so the chat keeps 25rem and its text field about 10rem. Home docks at 22rem.
+const CHAT_MIN_REM = 25;
+const HOME_DOCKED_REM = 22;
 
 /** True while a task replaces the chat: it stays mounted for its draft but shows nothing. */
 export const GoatBotChatHidden = createContext(false);
@@ -18,12 +20,15 @@ export const GoatBotChatHidden = createContext(false);
  */
 export const GoatBotChatCanHide = createContext(false);
 
-/** The task route's row: a docked Home in the chat (`w-88`) leaves the task pane less room. */
-export const GOAT_BOT_HOME_RESERVE_ROW_CLASS =
-  "has-[[data-goat-bot-home-docked]]:[--goat-bot-home-reserve:calc(var(--spacing)*88)]";
+/** A docked Home's width; the row's reserve and the JS thresholds use the same 22rem. */
+export const GOAT_BOT_HOME_WIDTH_CLASS = "w-[22rem]";
 
-/** The task pane's width beside the chat: never the chat's 400px or a docked Home's room. */
-export const GOAT_BOT_TASK_PANE_WIDTH = `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${GOAT_BOT_CHAT_MIN_WIDTH}px - var(--goat-bot-home-reserve, 0px)))`;
+/** The task route's row: a docked Home in the chat leaves the task pane less room. */
+export const GOAT_BOT_HOME_RESERVE_ROW_CLASS =
+  "has-[[data-goat-bot-home-docked]]:[--goat-bot-home-reserve:22rem]";
+
+/** The task pane's width beside the chat: never the chat's 25rem or a docked Home's room. */
+export const GOAT_BOT_TASK_PANE_WIDTH = `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${CHAT_MIN_REM}rem - var(--goat-bot-home-reserve, 0px)))`;
 
 /** Where a docked Home tells the task route's row that it is there. */
 export const GoatBotHomeDockedRegistry = createContext<
@@ -37,9 +42,8 @@ export function useGoatBotChatPopupOpen() {
   if (hidden && open) setOpen(false);
   return [open && !hidden, setOpen] as const;
 }
-// GoatBotTaskPane's smallest resizable width and Home's docked width (`w-88`).
+// GoatBotTaskPane's smallest resizable width, in px as useResizableWidth keeps it.
 const TASK_PANE_MIN_WIDTH = 320;
-const HOME_DOCKED_WIDTH = 352;
 // A modal stays on screen over the task when the chat hides (Home's sheet, Edit bot), so focus in
 // one stays; navigationHolds.tsx lists the same slots as modal.
 const MODAL_POPUP = ["sheet-popup", "dialog-popup", "alert-dialog-popup", "command-dialog-popup"]
@@ -52,18 +56,33 @@ export function goatBotTaskBeside(layout: {
   readonly rowWidth: number;
   readonly besideSetting: boolean;
   readonly homeDocked: boolean;
+  /** The root font size in px. */
+  readonly remPx: number;
 }): boolean {
   return (
     layout.besideSetting &&
     layout.windowWide &&
     layout.rowWidth >=
-      TASK_PANE_MIN_WIDTH + GOAT_BOT_CHAT_MIN_WIDTH + (layout.homeDocked ? HOME_DOCKED_WIDTH : 0)
+      TASK_PANE_MIN_WIDTH +
+        (CHAT_MIN_REM + (layout.homeDocked ? HOME_DOCKED_REM : 0)) * layout.remPx
   );
 }
 
 /** Null while the view has no width: hidden, or not laid out yet. */
-export function goatBotViewFitsHome(width: number): boolean | null {
-  return width > 0 ? width >= HOME_DOCKED_WIDTH + GOAT_BOT_CHAT_MIN_WIDTH : null;
+export function goatBotViewFitsHome(width: number, remPx: number): boolean | null {
+  return width > 0 ? width >= (HOME_DOCKED_REM + CHAT_MIN_REM) * remPx : null;
+}
+
+/** The root font size in px, which the interface font size sets. */
+function rootRemPx(doc: Document): number {
+  return Number.parseFloat(getComputedStyle(doc.documentElement).fontSize) || 16;
+}
+
+/** Calls back when the root's inline style changes, as a new interface font size does. */
+function observeRootStyle(doc: Document, callback: () => void): () => void {
+  const observer = new MutationObserver(callback);
+  observer.observe(doc.documentElement, { attributes: true, attributeFilter: ["style"] });
+  return () => observer.disconnect();
 }
 
 export type GoatBotHomePresentation = "docked" | "sheet" | "unmeasured";
@@ -142,6 +161,7 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
         rowWidth: row.getBoundingClientRect().width,
         besideSetting,
         homeDocked: dockedHome.current !== null,
+        remPx: rootRemPx(row.ownerDocument),
       });
       if (next === shown.current) return;
       if (!next) handOffFocus(row);
@@ -152,10 +172,12 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
     remeasure.current = measure;
     windowQuery.addEventListener("change", measure);
     const stopObserving = observeResize(row, measure);
+    const stopRoot = observeRootStyle(row.ownerDocument, measure);
     return () => {
       remeasure.current = () => {};
       windowQuery.removeEventListener("change", measure);
       stopObserving();
+      stopRoot();
     };
   };
   return { beside, rowRef, onChatFocus, watchModalClose, registerHomeDocked };
@@ -185,9 +207,17 @@ export function useGoatBotHomePresentation(panelOpen: boolean) {
   if (next !== choice) setChoice(next);
   const viewRef = (view: HTMLElement | null) => {
     if (view === null) return;
-    const measure = () => setViewFits(goatBotViewFitsHome(view.getBoundingClientRect().width));
+    const measure = () =>
+      setViewFits(
+        goatBotViewFitsHome(view.getBoundingClientRect().width, rootRemPx(view.ownerDocument)),
+      );
     measure();
-    return observeResize(view, measure);
+    const stopObserving = observeResize(view, measure);
+    const stopRoot = observeRootStyle(view.ownerDocument, measure);
+    return () => {
+      stopObserving();
+      stopRoot();
+    };
   };
   const presentation: GoatBotHomePresentation =
     next === null ? "unmeasured" : next.docked ? "docked" : "sheet";

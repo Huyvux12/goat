@@ -795,3 +795,28 @@ it("closing the app's own sheet of the chat while the task replaces the chat sen
     state.modalSlot = "dialog-popup";
   }
 });
+
+it("with Home docked at a 20px interface size, the task sits beside only while the row keeps 1260px, and a size change decides again", async () => {
+  state.beside = true;
+  await using _home = await dockHome(true);
+  await using _window = await windowWidth(1440);
+  const container = row(1100);
+  const before = document.documentElement.style.fontSize;
+  using _restore = {
+    [Symbol.dispose]: () => {
+      document.documentElement.style.fontSize = before;
+    },
+  };
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  // 16px: 320 + 400 + 352 = 1072 fits in 1100.
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  // 20px: 320 + 500 + 440 = 1260 does not.
+  await act(() => {
+    document.documentElement.style.fontSize = "20px";
+  });
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  container.style.width = "1259px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  container.style.width = "1260px";
+  await expect.element(screen.getByText("Close")).toBeVisible();
+});
