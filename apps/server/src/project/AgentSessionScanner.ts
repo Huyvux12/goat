@@ -16,7 +16,6 @@ import {
   type CodexHistoryThreadRef,
 } from "./CodexThreadHistory.ts";
 import { transcriptIdentity, sameTranscriptIdentity } from "./AgentSessionTranscriptIdentity.ts";
-import { LEGACY_MANAGED_WORKTREE_PATH } from "@goat/contracts/legacyT3Names";
 import * as NodeOS from "node:os";
 
 import {
@@ -61,6 +60,11 @@ import {
   createTranscriptJsonSelector,
   TranscriptJsonLimitError,
 } from "./AgentSessionJson.ts";
+import {
+  normalizeForWorktreeMatch,
+  isGoatManagedWorktree,
+  extractCwd,
+} from "./AgentSessionTranscriptCwd.ts";
 
 const TRANSCRIPT_PREFIX_BYTES = 32 * 1024;
 const METADATA_READ_BYTES = 8 * 1024;
@@ -186,7 +190,7 @@ export class AgentSessionScanner extends Context.Service<
   }
 >()("goat/project/AgentSessionScanner") {}
 
-type AgentSessionSource = AgentSessionProjectCandidate["sources"][number];
+export type AgentSessionSource = AgentSessionProjectCandidate["sources"][number];
 
 interface RawCandidate {
   readonly cwd: string;
@@ -624,59 +628,6 @@ function createClaudeHistoryWindow() {
     },
     droppedMessageCount: () => droppedMessageCount,
   };
-}
-
-function normalizeForWorktreeMatch(value: string, caseFold: boolean): string {
-  const normalized = `${value.replaceAll("\\", "/")}/`;
-  return caseFold ? normalized.toLowerCase() : normalized;
-}
-
-function isGoatManagedWorktree(
-  candidatePath: string,
-  worktreesDir: string,
-  caseFold: boolean,
-): boolean {
-  const normalized = normalizeForWorktreeMatch(candidatePath, caseFold);
-  return (
-    normalized.startsWith(normalizeForWorktreeMatch(worktreesDir, caseFold)) ||
-    normalized.includes("/.goat/worktrees/") ||
-    normalized.includes(LEGACY_MANAGED_WORKTREE_PATH)
-  );
-}
-
-// false stops metadata scanning for an excluded rollout, even if later records contain a cwd.
-function extractCwd(line: string, source: AgentSessionSource): string | null | false {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-
-  const record = parsed as Record<string, unknown>;
-  if (typeof record.cwd === "string" && record.cwd.trim().length > 0) {
-    return record.cwd;
-  }
-  const payload = record.payload;
-  if (typeof payload === "object" && payload !== null) {
-    if (source === "codex" && record.type === "session_meta") {
-      const sessionSource = (payload as Record<string, unknown>).source;
-      if (
-        typeof sessionSource === "object" &&
-        sessionSource !== null &&
-        !Array.isArray(sessionSource) &&
-        (Object.hasOwn(sessionSource, "subagent") || Object.hasOwn(sessionSource, "subAgent"))
-      ) {
-        return false;
-      }
-    }
-    const nested = (payload as Record<string, unknown>).cwd;
-    if (typeof nested === "string" && nested.trim().length > 0) {
-      return nested;
-    }
-  }
-  return null;
 }
 
 /** @public */
