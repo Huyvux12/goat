@@ -187,7 +187,7 @@ function GoatBotChatViewContent({
   const title = useGoatBotName();
   const mainName = useGoatBotMainName();
   const picture = useGoatBotPicture();
-  const { viewRef, presentation, hidden } = useGoatBotHomePresentation();
+  const { viewRef, presentation, hidden } = useGoatBotHomePresentation(panelOpen);
   const narrow = presentation === "sheet";
   const bot = availability.kind === "ready" ? availability.bot : null;
   const routineLanding = useGoatBotRoutineLanding(bot, panelOpen, () => setPanelOpen(true));

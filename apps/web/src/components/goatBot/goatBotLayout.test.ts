@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { goatBotHomePresentation, goatBotTaskBeside, goatBotViewFitsHome } from "./goatBotLayout";
+import { goatBotHomeOpenedAs, goatBotTaskBeside, goatBotViewFitsHome } from "./goatBotLayout";
 
 describe("the task pane goes beside the chat only when the chat keeps 400px", () => {
   it.each([
@@ -23,16 +23,16 @@ describe("Home docks only when the chat view keeps 400px beside it", () => {
   });
 
   it.each([
-    { windowWide: true, viewFits: true, hidden: false, presentation: "docked" },
-    { windowWide: true, viewFits: false, hidden: false, presentation: "sheet" },
-    { windowWide: false, viewFits: true, hidden: false, presentation: "sheet" },
-    { windowWide: true, viewFits: true, hidden: true, presentation: "unmeasured" },
-    { windowWide: true, viewFits: null, hidden: false, presentation: "unmeasured" },
-    { windowWide: false, viewFits: null, hidden: false, presentation: "unmeasured" },
+    { windowWide: true, width: 752, openedAs: "docked" },
+    { windowWide: true, width: 751, openedAs: "sheet" },
+    { windowWide: false, width: 1200, openedAs: "sheet" },
+    { windowWide: true, width: 0, openedAs: null },
   ])(
-    "window wide $windowWide, view fits $viewFits, hidden $hidden: $presentation",
-    ({ presentation, ...layout }) => {
-      expect(goatBotHomePresentation(layout)).toBe(presentation);
+    "Home opened with the window wide $windowWide and a $width px chat view: $openedAs",
+    ({ windowWide, width, openedAs }) => {
+      expect(goatBotHomeOpenedAs({ windowWide, viewFits: goatBotViewFitsHome(width) })).toBe(
+        openedAs,
+      );
     },
   );
 });

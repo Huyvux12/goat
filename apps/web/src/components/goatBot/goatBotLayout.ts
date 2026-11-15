@@ -11,6 +11,12 @@ export const GOAT_BOT_CHAT_MIN_WIDTH = 400;
 /** True while a task replaces the chat: it stays mounted for its draft but shows nothing. */
 export const GoatBotChatHidden = createContext(false);
 
+/**
+ * True on the task route, where a task replaces the chat at 980px and below. Home's presentation
+ * there never follows the 980px gate: the window query can flip a render before the chat hides.
+ */
+export const GoatBotChatCanHide = createContext(false);
+
 /** Open state for a popup the chat owns: a task replacing the chat closes it, as unmounting did. */
 export function useGoatBotChatPopupOpen() {
   const hidden = useContext(GoatBotChatHidden);
@@ -42,13 +48,12 @@ export function goatBotViewFitsHome(width: number): boolean | null {
 
 export type GoatBotHomePresentation = "docked" | "sheet" | "unmeasured";
 
-/** Unmeasured shows Home nowhere, so an unknown width never mounts the sheet first. */
-export function goatBotHomePresentation(layout: {
+/** How Home opens: docked when the window is wide and the view keeps 752px; null until measured. */
+export function goatBotHomeOpenedAs(layout: {
   readonly windowWide: boolean;
   readonly viewFits: boolean | null;
-  readonly hidden: boolean;
-}): GoatBotHomePresentation {
-  if (layout.hidden || layout.viewFits === null) return "unmeasured";
+}): "docked" | "sheet" | null {
+  if (layout.viewFits === null) return null;
   return layout.windowWide && layout.viewFits ? "docked" : "sheet";
 }
 
@@ -97,17 +102,35 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   return { beside, rowRef, onChatFocus };
 }
 
-/** Measures the chat view itself, which a docked Home shares with the conversation. */
-export function useGoatBotHomePresentation() {
+/**
+ * Measures the chat view itself, which a docked Home shares with the conversation. Home keeps the
+ * presentation it opened in until it closes, so no resize remounts it between its panel and its
+ * sheet. Only dev's 980px gate chooses again, on a chat that a task cannot hide, while measured.
+ */
+export function useGoatBotHomePresentation(panelOpen: boolean) {
   const hidden = useContext(GoatBotChatHidden);
+  const canHide = useContext(GoatBotChatCanHide);
   const windowWide = !useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const [viewFits, setViewFits] = useState<boolean | null>(null);
+  // A closed Home keeps its last presentation, so the sheet's closing animation and focus run.
+  const [choice, setChoice] = useState<{ live: boolean; wide: boolean; docked: boolean } | null>(
+    null,
+  );
+  let next = choice;
+  if (!panelOpen) {
+    if (choice?.live) next = { ...choice, live: false };
+  } else if (choice === null || !choice.live || (!canHide && choice.wide !== windowWide)) {
+    const openedAs = goatBotHomeOpenedAs({ windowWide, viewFits });
+    if (openedAs !== null) next = { live: true, wide: windowWide, docked: openedAs === "docked" };
+  }
+  if (next !== choice) setChoice(next);
   const viewRef = (view: HTMLElement | null) => {
     if (view === null) return;
     const measure = () => setViewFits(goatBotViewFitsHome(view.getBoundingClientRect().width));
     measure();
     return observeResize(view, measure);
   };
-  const presentation = goatBotHomePresentation({ windowWide, viewFits, hidden });
+  const presentation: GoatBotHomePresentation =
+    next === null ? "unmeasured" : next.docked ? "docked" : "sheet";
   return { viewRef, presentation, hidden };
 }
