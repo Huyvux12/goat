@@ -19,8 +19,10 @@ import { GoatBotStepsProvider } from "../components/goatBot/GoatBotStepsProvider
 import { GoatBotChannelContext } from "../components/goatBot/goatBotChannelPort";
 import { useLegacyGlobalAgentRoute } from "../components/goatBot/goatBotHooks";
 import {
+  GOAT_BOT_HOME_RESERVE_ROW_CLASS,
   GoatBotChatCanHide,
   GoatBotChatHidden,
+  GoatBotHomeDockedRegistry,
   useGoatBotTaskBeside,
 } from "../components/goatBot/goatBotLayout";
 import {
@@ -177,7 +179,7 @@ export function GoatBotTaskRoute({
 }) {
   const taskFocus = getTaskPaneFocus();
   const besideChat = useClientSettings((settings) => settings.goatBotTaskThreadsBesideChat);
-  const { beside, rowRef, onChatFocus } = useGoatBotTaskBeside(besideChat);
+  const { beside, rowRef, onChatFocus, registerHomeDocked } = useGoatBotTaskBeside(besideChat);
   const navigate = useNavigate();
   const legacyAgentRoute = useLegacyGlobalAgentRoute();
   const member = useGoatBotMember();
@@ -185,29 +187,34 @@ export function GoatBotTaskRoute({
   const memberDeleted = member?.state === "deleted";
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1">
+      <div
+        ref={rowRef}
+        className={`flex min-h-0 min-w-0 flex-1 ${GOAT_BOT_HOME_RESERVE_ROW_CLASS}`}
+      >
         {/* Hidden, not unmounted, while the task replaces it: the composer keeps its draft, and its
             holds pause as they did when it unmounted. */}
         <div onFocus={onChatFocus} hidden={!beside} className="flex min-h-0 min-w-0 flex-1">
           <NavigationHoldsPaused value={!beside}>
             <GoatBotChatHidden value={!beside}>
               <GoatBotChatCanHide value>
-                <GoatBotStepsProvider
-                  visibleTurnItems={session.visibleTurnItems}
-                  environmentId={memberDeleted ? null : environmentId}
-                >
-                  <GoatBotChatView
-                    {...session}
-                    environmentId={environmentId}
-                    legacyAgentRoute={legacyAgentRoute}
-                    removal={memberDeleted ? "deleted" : null}
-                    onRestore={
-                      memberDeleted && manage.canManage
-                        ? () => void manage.restore(member)
-                        : undefined
-                    }
-                  />
-                </GoatBotStepsProvider>
+                <GoatBotHomeDockedRegistry value={registerHomeDocked}>
+                  <GoatBotStepsProvider
+                    visibleTurnItems={session.visibleTurnItems}
+                    environmentId={memberDeleted ? null : environmentId}
+                  >
+                    <GoatBotChatView
+                      {...session}
+                      environmentId={environmentId}
+                      legacyAgentRoute={legacyAgentRoute}
+                      removal={memberDeleted ? "deleted" : null}
+                      onRestore={
+                        memberDeleted && manage.canManage
+                          ? () => void manage.restore(member)
+                          : undefined
+                      }
+                    />
+                  </GoatBotStepsProvider>
+                </GoatBotHomeDockedRegistry>
               </GoatBotChatCanHide>
             </GoatBotChatHidden>
           </NavigationHoldsPaused>

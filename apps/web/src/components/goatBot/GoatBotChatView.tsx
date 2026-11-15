@@ -10,7 +10,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { goatBotHomeKey } from "./goatBotHomeRequest";
-import { useGoatBotHomePresentation } from "./goatBotLayout";
+import { GoatBotHomeDockedRegistry, useGoatBotHomePresentation } from "./goatBotLayout";
 
 import { cn } from "~/lib/utils";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
@@ -189,6 +189,7 @@ function GoatBotChatViewContent({
   const mainName = useGoatBotMainName();
   const picture = useGoatBotPicture();
   const { viewRef, presentation, hidden } = useGoatBotHomePresentation(panelOpen);
+  const registerHomeDocked = useContext(GoatBotHomeDockedRegistry);
   const narrow = presentation === "sheet";
   const bot = availability.kind === "ready" ? availability.bot : null;
   const routineLanding = useGoatBotRoutineLanding(bot, panelOpen, () => setPanelOpen(true));
@@ -608,7 +609,12 @@ function GoatBotChatViewContent({
         </div>
       </div>
       {bot && panelOpen && presentation === "docked" && (
-        <aside aria-label={`${title} work`} className="flex w-88 shrink-0 border-l border-border">
+        <aside
+          ref={registerHomeDocked}
+          data-goat-bot-home-docked
+          aria-label={`${title} work`}
+          className="flex w-88 shrink-0 border-l border-border"
+        >
           <GoatBotWorkPanel
             key={homeKey}
             environmentId={bot.environmentId}

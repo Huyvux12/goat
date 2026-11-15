@@ -2,15 +2,20 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { goatBotHomeOpenedAs, goatBotTaskBeside, goatBotViewFitsHome } from "./goatBotLayout";
 
-describe("the task pane goes beside the chat only when the chat keeps 400px", () => {
+describe("the task pane goes beside the chat only when the chat keeps 400px, and a docked Home 352px", () => {
   it.each([
-    { windowWide: true, rowWidth: 720, besideSetting: true, beside: true },
-    { windowWide: true, rowWidth: 719, besideSetting: true, beside: false },
-    { windowWide: false, rowWidth: 1600, besideSetting: true, beside: false },
-    { windowWide: true, rowWidth: 1600, besideSetting: false, beside: false },
-  ])("window wide $windowWide, row $rowWidth, setting $besideSetting", (layout) => {
-    expect(goatBotTaskBeside(layout)).toBe(layout.beside);
-  });
+    { windowWide: true, rowWidth: 720, besideSetting: true, homeDocked: false, beside: true },
+    { windowWide: true, rowWidth: 719, besideSetting: true, homeDocked: false, beside: false },
+    { windowWide: true, rowWidth: 1072, besideSetting: true, homeDocked: true, beside: true },
+    { windowWide: true, rowWidth: 1071, besideSetting: true, homeDocked: true, beside: false },
+    { windowWide: false, rowWidth: 1600, besideSetting: true, homeDocked: false, beside: false },
+    { windowWide: true, rowWidth: 1600, besideSetting: false, homeDocked: false, beside: false },
+  ])(
+    "window wide $windowWide, row $rowWidth, setting $besideSetting, Home docked $homeDocked",
+    (layout) => {
+      expect(goatBotTaskBeside(layout)).toBe(layout.beside);
+    },
+  );
 });
 
 describe("Home docks only when the chat view keeps 400px beside it", () => {

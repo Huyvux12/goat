@@ -31,7 +31,7 @@ import { goatBotHomeKey } from "./goatBotHomeRequest";
 import { useBotThreads } from "./useBotRoster";
 import { useGoatBotSession } from "./useGoatBotSession";
 import { focusTaskHeading, getTaskPaneFocus } from "./taskPaneFocus";
-import { GOAT_BOT_CHAT_MIN_WIDTH } from "./goatBotLayout";
+import { GOAT_BOT_TASK_PANE_WIDTH } from "./goatBotLayout";
 import { useBotTaskLookup } from "./useBotTaskLookup";
 import { useAcknowledgeTaskRead } from "./useAcknowledgeTaskRead";
 import type { GoatBotLocalSubmission } from "./useGoatBotFollow";
@@ -153,8 +153,8 @@ export function GoatBotTaskPane({
         narrow
           ? undefined
           : ({
-              // The chat beside keeps GOAT_BOT_CHAT_MIN_WIDTH; the stored width shows again when wider.
-              width: `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${GOAT_BOT_CHAT_MIN_WIDTH}px))`,
+              // The stored width shows again when the row is wider.
+              width: GOAT_BOT_TASK_PANE_WIDTH,
               [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
             } as CSSProperties)
       }

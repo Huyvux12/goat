@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import { Profiler, cloneElement } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "../../test/render";
+import { act, render } from "../../test/render";
 import { navigationBlocked } from "../lib/navigationHolds";
 import { observeResize } from "../lib/observeResize";
 
@@ -24,6 +24,9 @@ const state = vi.hoisted(() => ({
   items: [] as Array<unknown>,
   sessionReads: [] as Array<string>,
   boundedSnapshots: true,
+  /** The chat shows Home docked beside its conversation. */
+  homeDocked: false,
+  homeListeners: new Set<() => void>(),
 }));
 vi.mock("../hooks/useSettings", () => ({ useClientSettings: () => state.beside }));
 vi.mock("../state/entities", () => ({
@@ -71,17 +74,32 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
   // A held draft, open file or edited name: the real surfaces render this hold.
   const { HoldsNavigation } = await import("../lib/navigationHolds");
   const { createPortal } = await import("react-dom");
-  const { useContext } = await import("react");
-  const { GoatBotChatHidden } = await import("../components/goatBot/goatBotLayout");
+  const { useContext, useSyncExternalStore } = await import("react");
+  const { GoatBotChatHidden, GoatBotHomeDockedRegistry } =
+    await import("../components/goatBot/goatBotLayout");
   return {
     GoatBotChatView: (props: { removal?: string | null; onRestore?: () => void }) => {
       state.chatSession = props;
       const hidden = useContext(GoatBotChatHidden);
+      const registerHomeDocked = useContext(GoatBotHomeDockedRegistry);
+      // Home opens and closes inside the chat, without the route rendering again.
+      const homeDocked = useSyncExternalStore(
+        (listener) => {
+          state.homeListeners.add(listener);
+          return () => state.homeListeners.delete(listener);
+        },
+        () => state.homeDocked,
+      );
       return (
         <GoatBotStepsReader rows={[]} paused={hidden}>
           <div>
             Main chat
             <input aria-label="Message" />
+            {homeDocked ? (
+              <aside ref={registerHomeDocked} data-goat-bot-home-docked aria-label="Home">
+                <input aria-label="New wording" />
+              </aside>
+            ) : null}
             <HoldsNavigation />
             {/* A chat menu or Home's sheet renders outside the row, as Base UI portals do. */}
             {createPortal(
@@ -597,4 +615,78 @@ it("the chat is beside the task after the first commit, not deferred to a timer"
   );
   await expect.element(screen.getByText("Close")).toBeVisible();
   expect(seen).toBe("beside");
+});
+
+/** Docks or removes Home inside the chat stand-in; undone on dispose. */
+async function dockHome(docked: boolean) {
+  const set = (value: boolean) =>
+    act(() => {
+      state.homeDocked = value;
+      for (const listener of state.homeListeners) listener();
+    });
+  await set(docked);
+  return { [Symbol.asyncDispose]: () => set(false) };
+}
+
+it("with Home docked the task sits beside only while the row keeps 1072px; below it the task replaces chat and Home, which come back with their input", async () => {
+  state.beside = true;
+  await using _home = await dockHome(true);
+  await using _window = await windowWidth(1366);
+  // 1366 with the sidebar collapsed leaves the row 1310; opening the sidebar leaves 1054.
+  const container = row(1310);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.type(screen.getByRole("textbox", { name: "New wording" }), "Reply in English");
+  container.style.width = "1054px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  await expect.element(screen.getByText("Main chat")).not.toBeVisible();
+  container.style.width = "1310px";
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  await expect
+    .element(screen.getByRole("textbox", { name: "New wording" }))
+    .toHaveValue("Reply in English");
+});
+
+it("a docked Home that mounts or unmounts (a reconnect) decides the layout again without a resize", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1366);
+  await using screen = await render(taskRoute, { router: false, container: row(1054) }); // No navigation.
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  {
+    await using _home = await dockHome(true);
+    await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  }
+  await expect.element(screen.getByText("Close")).toBeVisible();
+});
+
+it("performance invariant: with Home docked, sweeping the window from 1440 to 960 commits the route once per threshold at most", async () => {
+  state.beside = true;
+  await using _home = await dockHome(true);
+  await using _window = await windowWidth(1440);
+  const sidebar = 312;
+  const container = row(1440 - sidebar);
+  let commits = 0;
+  await using screen = await render(
+    <Profiler id="task-route" onRender={() => commits++}>
+      {taskRoute}
+    </Profiler>,
+    { router: false, container }, // No navigation.
+  );
+  await expect.element(screen.getByText("Close")).toBeVisible();
+  let resized = () => {};
+  const stop = observeResize(container, () => resized());
+  try {
+    commits = 0;
+    for (let width = 1424; width >= 960; width -= 16) {
+      await page.viewport(width, 900);
+      const delivered = new Promise<void>((resolve) => (resized = resolve));
+      container.style.width = `${width - sidebar}px`;
+      await delivered;
+    }
+  } finally {
+    stop();
+  }
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  expect(commits).toBeGreaterThan(0);
+  expect(commits).toBeLessThanOrEqual(2);
 });

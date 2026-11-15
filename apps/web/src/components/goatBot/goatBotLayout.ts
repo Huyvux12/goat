@@ -1,12 +1,13 @@
 import { createContext, useContext, useRef, useState, type FocusEvent } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { RESIZABLE_WIDTH_PROPERTY } from "~/hooks/useResizableWidth";
 import { observeResize } from "~/lib/observeResize";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "~/rightPanelLayout";
 import { useStableCallback } from "~/hooks/useStableCallback";
 
 /** Below this the composer wraps its controls and its text field shrinks to a few words. */
-export const GOAT_BOT_CHAT_MIN_WIDTH = 400;
+const GOAT_BOT_CHAT_MIN_WIDTH = 400;
 
 /** True while a task replaces the chat: it stays mounted for its draft but shows nothing. */
 export const GoatBotChatHidden = createContext(false);
@@ -16,6 +17,18 @@ export const GoatBotChatHidden = createContext(false);
  * there never follows the 980px gate: the window query can flip a render before the chat hides.
  */
 export const GoatBotChatCanHide = createContext(false);
+
+/** The task route's row: a docked Home in the chat (`w-88`) leaves the task pane less room. */
+export const GOAT_BOT_HOME_RESERVE_ROW_CLASS =
+  "has-[[data-goat-bot-home-docked]]:[--goat-bot-home-reserve:calc(var(--spacing)*88)]";
+
+/** The task pane's width beside the chat: never the chat's 400px or a docked Home's room. */
+export const GOAT_BOT_TASK_PANE_WIDTH = `min(var(${RESIZABLE_WIDTH_PROPERTY}), calc(100% - ${GOAT_BOT_CHAT_MIN_WIDTH}px - var(--goat-bot-home-reserve, 0px)))`;
+
+/** Where a docked Home tells the task route's row that it is there. */
+export const GoatBotHomeDockedRegistry = createContext<
+  (aside: HTMLElement | null) => void | (() => void)
+>(() => {});
 
 /** Open state for a popup the chat owns: a task replacing the chat closes it, as unmounting did. */
 export function useGoatBotChatPopupOpen() {
@@ -33,11 +46,13 @@ export function goatBotTaskBeside(layout: {
   readonly windowWide: boolean;
   readonly rowWidth: number;
   readonly besideSetting: boolean;
+  readonly homeDocked: boolean;
 }): boolean {
   return (
     layout.besideSetting &&
     layout.windowWide &&
-    layout.rowWidth >= TASK_PANE_MIN_WIDTH + GOAT_BOT_CHAT_MIN_WIDTH
+    layout.rowWidth >=
+      TASK_PANE_MIN_WIDTH + GOAT_BOT_CHAT_MIN_WIDTH + (layout.homeDocked ? HOME_DOCKED_WIDTH : 0)
   );
 }
 
@@ -77,14 +92,29 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
     if (!lost && active !== chatFocus.current) return;
     row.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();
   });
+  // The docked Home registers itself, so its mount or unmount decides again without a resize; a
+  // DOM read in its ref cleanup would still find it, since React detaches refs before removal.
+  const dockedHome = useRef<HTMLElement | null>(null);
+  const remeasure = useRef(() => {});
+  const registerHomeDocked = (aside: HTMLElement | null) => {
+    if (aside === null) return;
+    dockedHome.current = aside;
+    remeasure.current();
+    return () => {
+      if (dockedHome.current === aside) dockedHome.current = null;
+      remeasure.current();
+    };
+  };
   const rowRef = (row: HTMLElement | null) => {
     if (row === null) return;
     const windowQuery = window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
     const measure = () => {
+      if (!row.isConnected) return;
       const next = goatBotTaskBeside({
         windowWide: !windowQuery.matches,
         rowWidth: row.getBoundingClientRect().width,
         besideSetting,
+        homeDocked: dockedHome.current !== null,
       });
       if (next === shown.current) return;
       if (!next) handOffFocus(row);
@@ -92,14 +122,16 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
       setBeside(next);
     };
     measure();
+    remeasure.current = measure;
     windowQuery.addEventListener("change", measure);
     const stopObserving = observeResize(row, measure);
     return () => {
+      remeasure.current = () => {};
       windowQuery.removeEventListener("change", measure);
       stopObserving();
     };
   };
-  return { beside, rowRef, onChatFocus };
+  return { beside, rowRef, onChatFocus, registerHomeDocked };
 }
 
 /**
