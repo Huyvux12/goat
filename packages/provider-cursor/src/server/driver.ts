@@ -109,9 +109,23 @@ export const CursorDriver: ProviderDriver<
     // The variables this instance sets itself, as opposed to inheriting them from the server.
     const instanceVariables = new Set((environment ?? []).map((variable) => variable.name));
     const home = yield* HostProcess.HomeDirectory;
-    const currentEnvironment = Effect.suspend(() =>
-      mergeProviderInstanceEnvironment(environment, hostEnvironment),
-    ).pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+    // Each read copies the host once; that copy is merged and judges which credentials are inherited.
+    const captureEnvironment = Effect.suspend(() => {
+      const server = { ...hostEnvironment };
+      return mergeProviderInstanceEnvironment(environment, server).pipe(
+        Effect.map((merged) =>
+          instanceCredentials({
+            instanceVariables,
+            settingsEndpoint: config.apiEndpoint,
+            environment: merged,
+            server,
+          }),
+        ),
+      );
+    }).pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+    const currentEnvironment = captureEnvironment.pipe(
+      Effect.map(({ environment }) => environment),
+    );
     const processEnv = yield* currentEnvironment;
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
@@ -295,19 +309,16 @@ export const CursorDriver: ProviderDriver<
 
     // One captured environment gives the check its key, backend and sign-in label.
     const checkProvider = Effect.gen(function* () {
-      // With no instance variables the merge is the live host object, so copy it once.
-      const processEnv = { ...(yield* currentEnvironment) };
-      const scope = instanceCredentials({
-        instanceVariables,
-        settingsEndpoint: effectiveConfig.apiEndpoint,
-        environment: processEnv,
-        server: hostEnvironment,
-      });
+      const captured = yield* captureEnvironment;
+      const processEnv = captured.environment;
+      const backendUrl = processEnv.CURSOR_BACKEND_URL;
       const apiKey = yield* auth
-        .readApiKeyFor(scope.environmentKey, processEnv.CURSOR_BACKEND_URL)
+        .readApiKeyFor(processEnv.CURSOR_API_KEY, backendUrl)
         .pipe(Effect.orElseSucceed(() => undefined));
       // readApiKey prefers the environment's key, so it is the key this check uses.
-      const usesApiKey = Boolean(scope.environmentKey?.trim());
+      const usesApiKey = Boolean(processEnv.CURSOR_API_KEY?.trim());
+      // An inherited key names the server's account, so its usage never shows on another endpoint.
+      const usageKey = captured.usageTakesEnvironmentKey || !usesApiKey ? apiKey : undefined;
       const draft = yield* checkCursorProviderStatus(
         effectiveConfig,
         { ...processEnv, CURSOR_API_KEY: apiKey },
@@ -325,9 +336,9 @@ export const CursorDriver: ProviderDriver<
               Effect.flatMap((settings) =>
                 readCursorUsageLimits(
                   effectiveConfig,
-                  { ...processEnv, CURSOR_API_KEY: apiKey, CURSOR_AUTH_TOKEN: scope.usageToken },
+                  { ...processEnv, CURSOR_API_KEY: usageKey },
                   settings.cursorKeychainUsageEnabled,
-                  scope.serverLogins,
+                  captured.serverLogins,
                 ),
               ),
               Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),

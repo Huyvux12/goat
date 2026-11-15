@@ -276,6 +276,181 @@ it.layer(layerTest)("CursorDriver credentials and environment", (it) => {
       }).pipe(Effect.scoped),
   );
 
+  it.effect("the host a check copies is the host it judges inherited credentials against", () =>
+    Effect.gen(function* () {
+      const sent: Array<string> = [];
+      const client = HttpClient.make((request) =>
+        Effect.sync(() => {
+          sent.push(`${request.url} ${request.headers.authorization ?? ""}`);
+          return request.url.endsWith("/v1/me")
+            ? HttpClientResponse.fromWeb(
+                request,
+                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+              )
+            : HttpClientResponse.fromWeb(request, Response.json({ items: [] }));
+        }),
+      );
+      // The server's key belongs to backend A when a check copies the host; any later read sees
+      // the server moved to B, the backend this instance names. A copy reads each property's
+      // descriptor before its value; a later direct read does not.
+      let copying: string | symbol | undefined;
+      const host = new Proxy<NodeJS.ProcessEnv>(
+        { CURSOR_API_KEY: "server-key", CURSOR_BACKEND_URL: "https://a.invalid" },
+        {
+          getOwnPropertyDescriptor: (object, key) => {
+            copying = key;
+            return Reflect.getOwnPropertyDescriptor(object, key);
+          },
+          get: (object, key) => {
+            const copied = copying === key;
+            copying = undefined;
+            return key === "CURSOR_BACKEND_URL" && !copied
+              ? "https://b.invalid"
+              : Reflect.get(object, key);
+          },
+        },
+      );
+      const instance = yield* CursorDriver.create({
+        instanceId: ProviderInstanceId.make("cursor-host-moves"),
+        displayName: "Cursor",
+        enabled: true,
+        environment: [{ name: "CURSOR_BACKEND_URL", value: "https://b.invalid", sensitive: false }],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, host),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      yield* instance.snapshot.refresh;
+      expect(sent.filter((line) => line.includes("server-key"))).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("an inherited key never stops an instance on its own backend from signing out", () =>
+    Effect.gen(function* () {
+      const client = HttpClient.make((request) =>
+        Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ items: [] }))),
+      );
+      const instance = yield* CursorDriver.create({
+        instanceId: ProviderInstanceId.make("cursor-own-backend-auth"),
+        displayName: "Cursor",
+        enabled: true,
+        environment: [
+          { name: "CURSOR_BACKEND_URL", value: "https://private.invalid", sensitive: false },
+        ],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, { CURSOR_API_KEY: "server-key" }),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      // Before and after a check, the snapshot offers sign-in and sign-out, and both are honoured.
+      expect((yield* instance.snapshot.getSnapshot).auth.canLogout).toBe(true);
+      const checked = yield* instance.snapshot.refresh;
+      expect(checked.setup?.canAuthenticate).toBe(true);
+      expect(checked.auth.canLogout).toBe(true);
+      expect((yield* Effect.result(instance.auth!.logout(Effect.void)))._tag).toBe("Success");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("an instance naming its own usage endpoint never shows the server key's usage", () =>
+    Effect.gen(function* () {
+      const sent: Array<string> = [];
+      const client = HttpClient.make((request) =>
+        Effect.sync(() => {
+          sent.push(`${request.url} ${request.headers.authorization ?? ""}`);
+          return request.url.endsWith("/v1/me")
+            ? HttpClientResponse.fromWeb(
+                request,
+                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+              )
+            : HttpClientResponse.fromWeb(request, Response.json({ items: [] }));
+        }),
+      );
+      // The server reads its usage from a private endpoint; the instance names Cursor's.
+      const instance = yield* CursorDriver.create({
+        instanceId: ProviderInstanceId.make("cursor-own-usage-endpoint"),
+        displayName: "Cursor",
+        enabled: true,
+        environment: [
+          { name: "CURSOR_API_ENDPOINT", value: "https://api2.cursor.sh", sensitive: false },
+        ],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, {
+          CURSOR_API_KEY: "server-key",
+          CURSOR_API_ENDPOINT: "https://usage.private.invalid",
+        }),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      yield* instance.snapshot.refresh;
+      // The key still reaches the server's backend, Cursor's catalog; nothing else carries it.
+      expect(
+        sent.filter(
+          (line) =>
+            line.includes("server-key") &&
+            !/^https:\/\/api\.cursor\.com\/v1\/(me|models) /.test(line),
+        ),
+      ).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a session on the instance's own backend never opens with the server's key", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-own-key-" });
+      const openedKeys: Array<string | undefined> = [];
+      const instanceId = ProviderInstanceId.make("cursor-own-backend-session");
+      const instance = yield* CursorDriver.create({
+        instanceId,
+        displayName: "Cursor",
+        enabled: true,
+        // The backend this process's SDK loaded; the server's key belongs to its private one.
+        environment: [
+          { name: "CURSOR_BACKEND_URL", value: "https://api2.cursor.sh", sensitive: false },
+        ],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, {
+          CURSOR_API_KEY: "server-key",
+          CURSOR_BACKEND_URL: "https://private.invalid",
+        }),
+        Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
+          assertComplete: Effect.void,
+          open: (request) =>
+            Effect.sync(() => ({
+              agentId: "native-cursor-own-key-" + openedKeys.push(request.options.apiKey),
+              listMessages: Effect.succeed([]),
+              close: Effect.void,
+              send: () => Effect.die("no turns in this test"),
+            })),
+        }),
+      );
+      const threadId = ThreadId.make("own-backend-session");
+      const modelSelection = { instanceId, model: "claude-opus-5-5" };
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: workspace,
+      });
+      const opened = yield* Effect.exit(
+        instance.orchestrationAdapter
+          .openSession({
+            threadId,
+            providerSessionId: ProviderSessionId.make("own-backend-session"),
+            modelSelection,
+            runtimePolicy,
+          })
+          .pipe(
+            Effect.flatMap((runtime) =>
+              runtime.ensureThread({ threadId, modelSelection, runtimePolicy }),
+            ),
+          ),
+      );
+      // With no key or sign-in of its own, the session asks for one.
+      expect(Exit.isFailure(opened)).toBe(true);
+      expect(openedKeys).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("a status check reads the host environment once", () =>
     Effect.gen(function* () {
       // Every way to read the host object: enumeration, a property, `in`, a descriptor.
