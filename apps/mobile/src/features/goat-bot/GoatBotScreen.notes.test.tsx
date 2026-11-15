@@ -670,6 +670,18 @@ it("Android focuses the message box after the sheet has gone and the request is 
   await view.unmount();
 });
 
+it("Android focuses the message box once New routine from the + is in it, caret at the end", async () => {
+  setup();
+  box.platform.OS = "android";
+  const view = await render();
+  await press(view.container, "Add to message: New routine");
+  expect(box.focus).toHaveBeenCalledTimes(1);
+  expect(box.atFocus).toEqual({ sheet: false, text: "Set up a routine: " });
+  const end = "Set up a routine: ".length;
+  expect(box.setSelection).toHaveBeenCalledWith(end, end);
+  await view.unmount();
+});
+
 it("a note's new wording waits while the person clears the box, through closing and reopening the sheet", async () => {
   setup();
   const view = await render();

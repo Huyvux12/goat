@@ -565,8 +565,8 @@ export function GoatBotScreen(props: {
   useEffect(() => {
     if (Platform.OS === "android" && !homeOpen) sheetGone();
   });
-  // A drafted request (New routine, Ask to change or forget) fills only an empty message box; the
-  // caller keeps its sheet and wording when the box is taken.
+  // A drafted request (New routine, Ask to change or forget) fills only a box with no words or files
+  // (blank space counts as empty, as for Send); the caller keeps its sheet and wording otherwise.
   const draft = (request: string) => {
     if (text.trim().length > 0 || attachments.length > 0 || intake > 0) {
       Alert.alert(
@@ -578,7 +578,8 @@ export function GoatBotScreen(props: {
     setText(request);
     // A drafted request is its own message, never an answer to a question.
     answering.stop();
-    if (homeOpen) focusOnDismiss.current = request.length;
+    // Android moves the caret only once the drafted text has committed; see the effect above.
+    if (homeOpen || Platform.OS === "android") focusOnDismiss.current = request.length;
     else focusInput(request.length);
     return true;
   };
