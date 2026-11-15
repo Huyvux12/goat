@@ -234,6 +234,34 @@ describe("Cursor Cloud credential precedence", () => {
       expect(key).toBe("instance-fixture");
     }),
   );
+  it.effect("never takes the server's key for a sibling that left the server's backend", () =>
+    Effect.gen(function* () {
+      const settings = yield* decodeSettings({
+        providerInstances: {
+          [siblingId]: {
+            driver: "cursor",
+            enabled: true,
+            config: {},
+            environment: [{ name: "CURSOR_BACKEND_URL", value: "https://api2.cursor.sh" }],
+          },
+        },
+      });
+      const h = credentialFixture(settings, null);
+      // The server's key belongs to its private backend; the sibling names Cursor's.
+      const result = yield* Effect.gen(function* () {
+        const credentials = yield* makeCursorCloudCredentials(instanceId, siblingId);
+        return yield* credentials.requireApiKey;
+      }).pipe(
+        Effect.provideService(ProviderHost.ProviderHost, h.host),
+        Effect.provideService(HostProcess.Environment, {
+          CURSOR_API_KEY: "server-key",
+          CURSOR_BACKEND_URL: "https://private.invalid",
+        }),
+        Effect.result,
+      );
+      expect(result._tag).toBe("Failure");
+    }),
+  );
   it.effect("rejects the selected sibling's non-production backend", () =>
     Effect.gen(function* () {
       const settings = yield* decodeSettings({

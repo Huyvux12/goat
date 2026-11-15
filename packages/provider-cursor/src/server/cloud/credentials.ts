@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { instanceCredentials } from "../credentialScope.ts";
 import { cursorBackendIdentity } from "../sdkBackend.ts";
 export { sdkBackendMatches } from "../sdkBackend.ts";
 export { cloudSdkBackendMatches } from "../sdkBackend.ts";
@@ -89,10 +90,14 @@ export const makeCursorCloudCredentials = Effect.fn("makeCursorCloudCredentials"
         detail: "The selected credential source must be an existing Cursor provider instance.",
       });
     }
-    const environment = yield* mergeProviderInstanceEnvironment(
-      sibling?.environment,
-      hostEnvironment,
-    );
+    // A key the sibling inherits goes only to the server's backend, judged on one host copy.
+    const server = { ...hostEnvironment };
+    const { environment } = instanceCredentials({
+      instanceVariables: new Set((sibling?.environment ?? []).map((variable) => variable.name)),
+      settingsEndpoint: undefined,
+      environment: yield* mergeProviderInstanceEnvironment(sibling?.environment, server),
+      server,
+    });
     if (
       environment.CURSOR_BACKEND_URL !== undefined &&
       cursorBackendIdentity(environment.CURSOR_BACKEND_URL) !== PRODUCTION_BACKEND
