@@ -132,6 +132,7 @@ const reactTests = [
   "src/features/notes/NoteStartWorkRouteScreen.test.tsx",
   "src/features/settings/ProjectActionsSettings.test.tsx",
   "src/features/files/thread-file-navigator-pane.test.tsx",
+  "src/features/workspace/WorkspaceRootScreen.android.test.tsx",
   "src/features/projects/AddProjectScreen.test.ts",
   "src/lib/useMediaVideoPlayback.test.tsx",
   "src/features/pull-requests/usePullRequestEnvironmentFallback.test.tsx",
