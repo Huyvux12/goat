@@ -380,6 +380,39 @@ describe("Cursor usage limits", () => {
     }),
   );
 
+  it.effect("keeps a private backend's token from Cursor's endpoint however it is written", () =>
+    Effect.gen(function* () {
+      for (const [apiEndpoint, environment] of [
+        ["", { CURSOR_API_ENDPOINT: "https://api2.cursor.sh:443" }],
+        ["", { CURSOR_API_ENDPOINT: "HTTPS://API2.CURSOR.SH" }],
+        ["", { CURSOR_API_ENDPOINT: "https://api2.cursor.sh/" }],
+        ["HTTPS://Api2.Cursor.sh:443/", {}],
+      ] as const) {
+        const limits = yield* withNodeServices(
+          readCursorUsageLimits(
+            { apiEndpoint },
+            {
+              ...environment,
+              CURSOR_AUTH_TOKEN: "private-token",
+              CURSOR_BACKEND_URL: "https://private.invalid",
+            },
+            true,
+          ).pipe(
+            Effect.provideService(HostProcess.Platform, "linux"),
+            Effect.provideService(
+              HttpClient.HttpClient,
+              HttpClient.make(() =>
+                Effect.die("must not send a private backend's token to Cursor's usage endpoint"),
+              ),
+            ),
+          ),
+        );
+        expect(limits.unavailable?.reason).toBe("unsupported");
+        expect(limits.unavailable?.message).toContain("default Cursor backend");
+      }
+    }),
+  );
+
   it.effect("treats Cursor's backend written with other letter case or :443 as Cursor's", () =>
     Effect.gen(function* () {
       const requested: Array<string> = [];

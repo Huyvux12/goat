@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { cursorBackendIdentity } from "../sdkBackend.ts";
 export { sdkBackendMatches } from "../sdkBackend.ts";
 export { cloudSdkBackendMatches } from "../sdkBackend.ts";
 const PRODUCTION_BACKEND = "https://api2.cursor.sh";
@@ -34,7 +35,7 @@ function usable(value: StoredSdkCredentials | undefined, now: number) {
   return (
     value !== undefined &&
     value.apiKey.trim().length > 0 &&
-    value.backendUrl.replace(/\/+$/, "") === PRODUCTION_BACKEND &&
+    cursorBackendIdentity(value.backendUrl) === PRODUCTION_BACKEND &&
     (value.apiKeyExpiresAtMs === undefined || value.apiKeyExpiresAtMs > now)
   );
 }
@@ -94,7 +95,7 @@ export const makeCursorCloudCredentials = Effect.fn("makeCursorCloudCredentials"
     );
     if (
       environment.CURSOR_BACKEND_URL !== undefined &&
-      environment.CURSOR_BACKEND_URL.replace(/\/+$/, "") !== PRODUCTION_BACKEND
+      cursorBackendIdentity(environment.CURSOR_BACKEND_URL) !== PRODUCTION_BACKEND
     ) {
       return yield* new ProviderSetupError({
         instanceId,

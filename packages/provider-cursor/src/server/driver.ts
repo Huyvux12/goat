@@ -12,6 +12,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { readCursorUsageLimits } from "./usageLimits.ts";
 import { cursorAccountIdentity } from "./accountIdentity.ts";
+import { cursorVerificationUrl, sameCursorBackend } from "./sdkBackend.ts";
 import type { CatalogModels } from "./sessionEnvironment.ts";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
@@ -155,8 +156,7 @@ export const CursorDriver: ProviderDriver<
       verifyKey: (key, backendUrl) => {
         const checkBackend = currentEnvironment.pipe(
           Effect.flatMap((env) =>
-            (env.CURSOR_BACKEND_URL || "https://api2.cursor.sh").replace(/\/+$/, "") ===
-            backendUrl.replace(/\/+$/, "")
+            sameCursorBackend(env.CURSOR_BACKEND_URL, backendUrl)
               ? Effect.void
               : Effect.fail(
                   new ProviderSetupError({
@@ -167,10 +167,7 @@ export const CursorDriver: ProviderDriver<
                 ),
           ),
         );
-        const verificationBackend =
-          backendUrl.replace(/\/+$/, "") === "https://api2.cursor.sh"
-            ? "https://api.cursor.com"
-            : backendUrl.replace(/\/+$/, "");
+        const verificationBackend = cursorVerificationUrl(backendUrl);
         return checkBackend.pipe(
           Effect.andThen(
             httpClient

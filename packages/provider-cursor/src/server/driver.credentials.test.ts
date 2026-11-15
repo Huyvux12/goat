@@ -183,6 +183,42 @@ it.layer(layerTest)("CursorDriver credentials and environment", (it) => {
       }).pipe(Effect.scoped),
   );
 
+  it.effect("a status check asks Cursor's public API however production is written", () =>
+    Effect.gen(function* () {
+      const requested: Array<string> = [];
+      const client = HttpClient.make((request) =>
+        Effect.sync(() => {
+          requested.push(request.url);
+          return request.url.endsWith("/v1/me")
+            ? HttpClientResponse.fromWeb(
+                request,
+                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+              )
+            : HttpClientResponse.fromWeb(request, Response.json({ items: [] }));
+        }),
+      );
+      const instance = yield* CursorDriver.create({
+        instanceId: ProviderInstanceId.make("cursor-catalog-production"),
+        displayName: "Cursor",
+        enabled: true,
+        environment: [
+          { name: "CURSOR_API_KEY", value: "production-key", sensitive: true },
+          { name: "CURSOR_BACKEND_URL", value: "HTTPS://API2.Cursor.sh:443/", sensitive: false },
+        ],
+        config: CursorDriver.defaultConfig(),
+      }).pipe(
+        Effect.provideService(HostProcess.Environment, {}),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      yield* instance.snapshot.refresh;
+      // Usage limits go to Cursor's usage service; this checks the catalog's two requests.
+      expect(requested.filter((url) => /\/v1\/(me|models)$/.test(url)).toSorted()).toEqual([
+        "https://api.cursor.com/v1/me",
+        "https://api.cursor.com/v1/models",
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("a status check reads the host environment once", () =>
     Effect.gen(function* () {
       // Every way to read the host object: enumeration, a property, `in`, a descriptor.

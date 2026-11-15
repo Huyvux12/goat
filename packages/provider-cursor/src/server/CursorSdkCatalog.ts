@@ -14,6 +14,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { cursorAccountIdentity } from "./accountIdentity.ts";
+import { cursorVerificationUrl } from "./sdkBackend.ts";
 
 export interface CursorSdkCatalogSnapshot {
   readonly user: SDKUser | undefined;
@@ -110,10 +111,13 @@ const isCatalogError = Schema.is(CursorSdkCatalogError);
 // Catalog discovery uses public HTTP routes so signed-in startup does not initialize the agent runtime.
 const makeLiveProbes = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
-  const baseUrl = (yield* Config.String("CURSOR_BACKEND_URL").pipe(
-    Config.withDefault("https://api.cursor.com"),
-    Effect.orDie,
-  )).replace(/\/$/, "");
+  // Production keys are served by Cursor's public API, however the production backend is written.
+  const baseUrl = cursorVerificationUrl(
+    yield* Config.String("CURSOR_BACKEND_URL").pipe(
+      Config.withDefault("https://api2.cursor.sh"),
+      Effect.orDie,
+    ),
+  );
   const request = Effect.fn("CursorSdkCatalog.request")(function* (apiKey: string, path: string) {
     const response = yield* client
       .execute(

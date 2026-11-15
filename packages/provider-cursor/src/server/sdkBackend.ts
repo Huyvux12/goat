@@ -22,14 +22,25 @@ export const currentCloudSdkBackend = () =>
 export const cloudSdkBackendMatches = () =>
   process.env.CURSOR_BACKEND_URL === undefined &&
   currentCloudSdkBackend() === "https://api.cursor.com" &&
-  (initializedBackend === undefined || initializedBackend === PRODUCTION_BACKEND);
+  (initializedBackend === undefined ||
+    cursorBackendIdentity(initializedBackend) === PRODUCTION_BACKEND);
 export const bindSdkBackend = (backend: string) => {
   initializedBackend ??= backend;
 };
 export const sdkBackendMatches = (backend?: string) => {
-  const selected = normalizeSdkBackend(backend);
+  const selected = cursorBackendIdentity(backend);
   return (
-    selected === currentSdkBackend() &&
-    (initializedBackend === undefined || selected === initializedBackend)
+    selected === cursorBackendIdentity(process.env.CURSOR_BACKEND_URL) &&
+    (initializedBackend === undefined || selected === cursorBackendIdentity(initializedBackend))
   );
 };
+
+/** Whether two backend URLs name the same Cursor backend; unset means production. */
+export const sameCursorBackend = (a: string | undefined, b: string | undefined) =>
+  cursorBackendIdentity(a) === cursorBackendIdentity(b);
+
+/** Where a sign-in's key is verified: Cursor's public API for production, else the backend. */
+export const cursorVerificationUrl = (backendUrl: string) =>
+  cursorBackendIdentity(backendUrl) === PRODUCTION_BACKEND
+    ? "https://api.cursor.com"
+    : backendUrl.replace(/\/+$/, "");

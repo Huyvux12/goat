@@ -28,7 +28,7 @@ import {
   type CursorCredentialSource,
 } from "./accountCache.ts";
 import * as CursorAccountReader from "./CursorAccountReader.ts";
-import { readStoredCursorApiKey } from "./credentialStore.ts";
+import { readStoredCursorSignIn } from "./credentialStore.ts";
 import { exchangesAtCursor } from "./apiKey.ts";
 
 const CURSOR_ACCOUNT_READ_ERROR = "Cursor account usage could not be read.";
@@ -53,6 +53,9 @@ export class CursorUsageAccounts extends Context.Service<
     readonly awaitPersisted: Effect.Effect<void>;
   }
 >()("@goat/provider-cursor/server/CursorUsageAccounts") {}
+
+/** What an instance contributes to the scan: its key, nothing, or a key held for another backend. */
+type InstanceCredential = { readonly apiKey: string } | "none" | "excluded";
 
 const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -291,30 +294,46 @@ const make = Effect.gen(function* () {
           ? path.join(userHome, ".cursor", "auth.json")
           : path.join(cursorHome, platform === "win32" ? "Cursor" : "cursor", "auth.json");
       // GOAT's Cursor sign-in and CURSOR_API_KEY name the account the agent uses, so they win.
-      // A key issued by another backend is never sent to Cursor's exchange.
-      const apiKeys = yield* Effect.forEach(instances, ({ instanceId, environment }) =>
-        !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
-          ? Effect.undefined
-          : environment.CURSOR_API_KEY?.trim()
-            ? Effect.succeed(environment.CURSOR_API_KEY.trim())
-            : readStoredCursorApiKey(instanceId, environment.CURSOR_BACKEND_URL).pipe(
-                Effect.provideService(ProviderHost.ProviderHost, host),
-                Effect.orElseSucceed(() => undefined),
-              ),
+      // A credential of another backend is never sent to Cursor's exchange, and its instance does
+      // not borrow the host's own login either.
+      const credentials = yield* Effect.forEach(
+        instances,
+        ({ instanceId, environment }): Effect.Effect<InstanceCredential> =>
+          !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
+            ? Effect.succeed("excluded")
+            : environment.CURSOR_API_KEY?.trim()
+              ? Effect.succeed({ apiKey: environment.CURSOR_API_KEY.trim() })
+              : readStoredCursorSignIn(instanceId).pipe(
+                  Effect.provideService(ProviderHost.ProviderHost, host),
+                  Effect.orElseSucceed(() => undefined),
+                  Effect.map((signIn): InstanceCredential =>
+                    signIn === undefined
+                      ? "none"
+                      : exchangesAtCursor(signIn.backendUrl)
+                        ? { apiKey: signIn.apiKey }
+                        : "excluded",
+                  ),
+                ),
       );
-      const uniqueApiKeys = [...new Set(apiKeys.filter((apiKey) => apiKey !== undefined))];
-      // The host's own Cursor login stands in only for instances on Cursor's backend.
+      const uniqueApiKeys = [
+        ...new Set(
+          credentials.flatMap((credential) =>
+            typeof credential === "object" ? [credential.apiKey] : [],
+          ),
+        ),
+      ];
+      // The host's own Cursor login stands in only for instances that have no credential at all.
       if (
         uniqueApiKeys.length === 0 &&
-        instances.length > 0 &&
-        instances.every(({ environment }) => !exchangesAtCursor(environment.CURSOR_BACKEND_URL))
+        credentials.length > 0 &&
+        credentials.every((credential) => credential === "excluded")
       ) {
         return [
           {
             dir: authPath,
             files: null,
             message:
-              "Cursor account history is unavailable for instances on another Cursor backend.",
+              "Cursor account history is unavailable: these instances' Cursor credentials belong to another Cursor backend.",
           },
         ];
       }

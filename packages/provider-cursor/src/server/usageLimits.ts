@@ -17,6 +17,7 @@ import {
   makeUsageLimits,
 } from "@goat/provider-core/server/usageLimits";
 import { DEFAULT_CURSOR_API_ENDPOINT, exchangeCursorApiKey, exchangesAtCursor } from "./apiKey.ts";
+import { cursorBackendIdentity } from "./sdkBackend.ts";
 import * as CursorKeychain from "./CursorKeychain.ts";
 
 const CursorCredentials = Schema.Struct({ accessToken: Schema.optional(Schema.String) });
@@ -86,11 +87,10 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
     let token = environment.CURSOR_AUTH_TOKEN?.trim();
     const apiKey = environment.CURSOR_API_KEY?.trim();
     const credentialStore = environment.AGENT_CLI_CREDENTIAL_STORE;
+    // Compared as a URL, so another spelling of Cursor's endpoint is still Cursor's.
+    const atCursorEndpoint = cursorBackendIdentity(endpoint) === DEFAULT_CURSOR_API_ENDPOINT;
     // Cursor's usage service serves Cursor's backend; another backend's credentials stay with it.
-    if (
-      endpoint === DEFAULT_CURSOR_API_ENDPOINT &&
-      !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
-    ) {
+    if (atCursorEndpoint && !exchangesAtCursor(environment.CURSOR_BACKEND_URL)) {
       return makeUnavailableUsageLimits({
         checkedAt,
         reason: "unsupported",
@@ -100,7 +100,7 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
     }
     // An API key can name a different account from the stored login, so read the key's own.
     if (!token && apiKey) {
-      if (endpoint !== DEFAULT_CURSOR_API_ENDPOINT) {
+      if (!atCursorEndpoint) {
         return makeUnavailableUsageLimits({
           checkedAt,
           reason: "unsupported",
@@ -122,7 +122,7 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
           message: "Enable Cursor account usage in GOAT to read its Keychain login.",
         });
       }
-      if (endpoint !== DEFAULT_CURSOR_API_ENDPOINT) {
+      if (!atCursorEndpoint) {
         return makeUnavailableUsageLimits({
           checkedAt,
           reason: "unsupported",

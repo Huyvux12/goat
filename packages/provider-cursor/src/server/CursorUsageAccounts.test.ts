@@ -194,4 +194,54 @@ describe("CursorUsageAccounts", () => {
       ),
     );
   });
+
+  it.effect(
+    "shows no host account's history when the stored sign-in belongs to another backend",
+    () => {
+      const read: Array<unknown> = [];
+      const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+        read: (credentialSource) =>
+          Effect.sync(() => {
+            read.push(credentialSource);
+            return { accountKey: null, records: [], missing: true, error: null };
+          }),
+      });
+      return Effect.gen(function* () {
+        const instanceId = ProviderInstanceId.make("cursor-moved-to-production");
+        const credentials = yield* (yield* ProviderHost.ProviderHost).credentials(
+          "cursor",
+          instanceId,
+        );
+        yield* credentials.set(
+          new TextEncoder().encode(
+            JSON.stringify({
+              version: 1,
+              backendUrl: "https://private.invalid",
+              apiKey: "stored-private-key",
+              createdAtMs: 0,
+            }),
+          ),
+        );
+        const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+        // The instance now selects Cursor's backend; its sign-in was made against another one.
+        const scans = yield* accounts.scan({
+          instances: [{ instanceId, environment: {} }],
+          keychainUsageEnabled: true,
+          windowStartMs: 0,
+          retentionCutoffMs: 0,
+          awaitRefresh: true,
+        });
+        assert.deepStrictEqual(read, []);
+        assert.strictEqual(scans.length, 1);
+        assert.include(scans[0]?.message ?? "", "another Cursor backend");
+      }).pipe(
+        Effect.provide(
+          Layer.provideMerge(
+            CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+            Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+          ),
+        ),
+      );
+    },
+  );
 });

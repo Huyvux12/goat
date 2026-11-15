@@ -7,7 +7,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
-import { cursorBackendIdentity } from "./sdkBackend.ts";
 
 const Credentials = Schema.fromJsonString(
   Schema.Struct({
@@ -93,10 +92,9 @@ export const makeCursorCredentialStore = Effect.fn("makeCursorCredentialStore")(
   return { store, binding: credentials.binding };
 });
 
-/** The unexpired API key from this instance's GOAT sign-in against `backendUrl`, without the SDK. */
-export const readStoredCursorApiKey = Effect.fn("readStoredCursorApiKey")(function* (
+/** This instance's unexpired GOAT sign-in and the backend it was made against, without the SDK. */
+export const readStoredCursorSignIn = Effect.fn("readStoredCursorSignIn")(function* (
   instanceId: ProviderInstanceId,
-  backendUrl: string | undefined,
 ) {
   const stored = yield* (yield* (yield* ProviderHost.ProviderHost).credentials(
     "cursor",
@@ -107,11 +105,8 @@ export const readStoredCursorApiKey = Effect.fn("readStoredCursorApiKey")(functi
     Effect.option,
   );
   if (Option.isNone(credentials)) return undefined;
-  const { apiKey, apiKeyExpiresAtMs } = credentials.value;
-  if (cursorBackendIdentity(credentials.value.backendUrl) !== cursorBackendIdentity(backendUrl)) {
-    return undefined;
-  }
+  const { apiKey, apiKeyExpiresAtMs, backendUrl } = credentials.value;
   return apiKeyExpiresAtMs === undefined || apiKeyExpiresAtMs > (yield* Clock.currentTimeMillis)
-    ? apiKey
+    ? { apiKey, backendUrl }
     : undefined;
 });

@@ -128,6 +128,18 @@ describe("Cursor Cloud credential precedence", () => {
       expect(key).toBe("sibling-fixture");
     }),
   );
+  it.effect("uses a sibling sign-in whose production backend is written another way", () =>
+    Effect.gen(function* () {
+      const key = yield* resolveKey({
+        instanceId,
+        sibling: Effect.succeed({
+          ...stored("sibling-fixture"),
+          backendUrl: "HTTPS://API2.Cursor.sh:443/",
+        }),
+      });
+      expect(key).toBe("sibling-fixture");
+    }),
+  );
   it.effect("retains the sibling's existing explicit-key override", () =>
     Effect.gen(function* () {
       const sibling = vi.fn(() => Effect.succeed(stored("stored-fixture")));
@@ -196,6 +208,29 @@ describe("Cursor Cloud credential precedence", () => {
           return yield* credentials.requireApiKey;
         }).pipe(Effect.provideService(ProviderHost.ProviderHost, h.host)),
       );
+      expect(key).toBe("instance-fixture");
+    }),
+  );
+  it.effect("accepts the sibling's production backend written another way", () =>
+    Effect.gen(function* () {
+      const settings = yield* decodeSettings({
+        providerInstances: {
+          [siblingId]: {
+            driver: "cursor",
+            enabled: true,
+            config: {},
+            environment: [
+              { name: "CURSOR_BACKEND_URL", value: "https://api2.cursor.sh:443" },
+              { name: "CURSOR_API_KEY", value: "instance-fixture" },
+            ],
+          },
+        },
+      });
+      const h = credentialFixture(settings);
+      const key = yield* Effect.gen(function* () {
+        const credentials = yield* makeCursorCloudCredentials(instanceId, siblingId);
+        return yield* credentials.requireApiKey;
+      }).pipe(Effect.provideService(ProviderHost.ProviderHost, h.host));
       expect(key).toBe("instance-fixture");
     }),
   );
