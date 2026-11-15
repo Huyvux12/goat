@@ -20,7 +20,6 @@ import { compareSemverVersions, satisfiesSemverRange } from "@goat/shared/semver
 import * as HostProcess from "@goat/shared/HostProcess";
 import { resolveCommandPath } from "@goat/shared/shell";
 import * as Cache from "effect/Cache";
-import * as Config from "effect/Config";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -47,6 +46,7 @@ import {
   parseChocolateyLatestVersion,
 } from "./maintenanceCommandPaths.ts";
 import * as ProviderLatestVersions from "./ProviderLatestVersions.ts";
+import { readCommandLookupEnv } from "./commandLookupEnv.ts";
 
 export {
   normalizeCommandPath,
@@ -59,25 +59,6 @@ const MISE_WRAPPER_MAX_BYTES = 16 * 1_024;
 const PROVIDER_UPDATE_ACTION_TOAST_MESSAGE = "Install the update now or review provider settings.";
 
 const MAINTENANCE_CAPABILITIES_CACHE_TTL = Duration.hours(1);
-
-const compactEnv = (input: Record<string, Option.Option<string>>): NodeJS.ProcessEnv =>
-  Object.fromEntries(
-    Object.entries(input).flatMap(([key, value]) =>
-      Option.match(value, {
-        onNone: () => [],
-        onSome: (resolved) => [[key, resolved]],
-      }),
-    ),
-  );
-
-const CommandLookupEnvConfig = Config.all({
-  PATH: Config.String("PATH").pipe(Config.option),
-  Path: Config.String("Path").pipe(Config.option),
-  path: Config.String("path").pipe(Config.option),
-  PATHEXT: Config.String("PATHEXT").pipe(Config.option),
-}).pipe(Config.map(compactEnv));
-
-const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
 export interface ProviderMaintenanceResolutionContext {
   readonly binaryPath: string;
