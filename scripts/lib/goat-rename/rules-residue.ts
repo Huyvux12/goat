@@ -273,6 +273,12 @@ export const RESIDUE_KEEP_RULES: readonly KeepRule[] = [
     "R6: generated third-party symbol, unrelated to product branding.",
   ),
   keep(
+    "unrelated-cursor-sdk-symbols",
+    ["patches/@cursor__sdk@1.2.0.patch"],
+    /\blpt3\b|\.T3\(/g,
+    "R6: the Windows LPT3 device name and a minified identifier in the Cursor SDK bundle, unrelated to product branding.",
+  ),
+  keep(
     "unrelated-result-variable",
     ["packages/ssh/src/tunnel.ensure-flight.test.ts"],
     /\bresult3\b/g,
