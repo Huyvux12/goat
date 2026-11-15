@@ -1,3 +1,19 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as KeyValueStore from "effect/persistence/KeyValueStore";
+import type { ServerSettings } from "@goat/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@goat/contracts/settings";
+import * as SourceControlRateLimit from "@goat/source-control-core/server/SourceControlRateLimit";
+import * as PullRequestFilesViewed from "../persistence/PullRequestFilesViewed.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
+import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
+import * as PullRequestReadCache from "./PullRequestReadCache.ts";
+import * as PullRequestService from "./PullRequestService.ts";
 import * as Effect from "effect/Effect";
 import { isSshRemoteUrl } from "@goat/shared/sourceControl";
 import { fakePullRequestProvider } from "@goat/source-control-testing/fakeSourceControlDriver";
@@ -165,3 +181,60 @@ export const cloudProject = project({
   workspaceRoot: "/fixture/source",
   repository: "acme/web",
 });
+
+export function makeService(input: {
+  readonly settings?: ServerSettings;
+  readonly projects: ReadonlyArray<OrchestrationProjectShell>;
+  readonly providers: ReadonlyArray<PullRequestProviderApi>;
+  readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
+  readonly resolveRepositoryIdentity?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]["resolve"];
+  readonly onProjectRead?: () => void;
+}) {
+  // Build in the test scope; per-call Effect.provide would close the marks database on service acquisition.
+  return Effect.flatMap(
+    Layer.build(
+      Layer.mergeAll(
+        Layer.mock(ServerSettingsService.ServerSettingsService)({
+          getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
+        }),
+        Layer.succeed(
+          PullRequestProviderRegistry.PullRequestProviderRegistry,
+          PullRequestProviderRegistry.fromProviders(input.providers),
+        ),
+        Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
+          resolveLink: () => undefined,
+          resolveHandle:
+            input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
+          get: (kind) =>
+            Effect.succeed(
+              kind === "forgejo" ? sshAliasHost : ({} as SourceControlProvider["Service"]),
+            ),
+        }),
+        Layer.mock(ProjectService.ProjectService)({
+          listShells: (options) =>
+            Effect.sync(() => {
+              input.onProjectRead?.();
+              return input.projects.filter(
+                (project) => options?.projectIds?.includes(project.id) ?? true,
+              );
+            }),
+          getShell: (projectId) =>
+            Effect.sync(() => {
+              input.onProjectRead?.();
+              return Option.fromNullishOr(input.projects.find((p) => p.id === projectId));
+            }),
+        }),
+        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+          resolve: input.resolveRepositoryIdentity ?? (() => Effect.succeed(null)),
+        }),
+        SourceControlRateLimit.layer,
+        PullRequestFilesViewed.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+        Layer.effect(PullRequestReadCache.PullRequestReadCache, PullRequestReadCache.make).pipe(
+          Layer.provide(KeyValueStore.layerMemory),
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
+    ),
+    (context) => Effect.provideContext(PullRequestService.make, context),
+  );
+}

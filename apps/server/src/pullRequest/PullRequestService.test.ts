@@ -7,23 +7,20 @@ import {
   requestFailed,
   fakeProvider,
   keyedByCanonicalKey,
-  sshAliasHost,
   cloudSessionUrl,
   cloudInput,
   cloudResult,
   cloudProject,
+  makeService,
 } from "./pullRequestTestFixtures.ts";
 import * as Clock from "effect/Clock";
 import { SourceControlProviderKind } from "@goat/contracts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as KeyValueStore from "effect/persistence/KeyValueStore";
 import { assert, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -34,25 +31,14 @@ import type {
   ProjectId,
 } from "@goat/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@goat/contracts/settings";
-import type { ServerSettings } from "@goat/contracts";
-import * as ServerSettingsService from "../serverSettings.ts";
 import { PullRequestOperationError } from "@goat/contracts";
 
-import * as ProjectService from "../project/ProjectService.ts";
-import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "../persistence/PullRequestFilesViewed.ts";
-import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
-import type { SourceControlProvider } from "@goat/source-control-core/server/SourceControlProvider";
-import * as SourceControlRateLimit from "@goat/source-control-core/server/SourceControlRateLimit";
 import { fakePullRequestProvider } from "@goat/source-control-testing/fakeSourceControlDriver";
 import {
   PullRequestProviderError,
   type PullRequestProviderApi,
 } from "@goat/source-control-core/server/PullRequestProvider";
-import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
-import * as PullRequestService from "./PullRequestService.ts";
-import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 
 const FULL_REVIEW: PullRequestReviewCapabilities = {
   inlineComment: true,
@@ -146,63 +132,6 @@ it.effect("does not wait for an in-flight detail read to display a preview", () 
     yield* Fiber.join(detail);
   }),
 );
-
-export function makeService(input: {
-  readonly settings?: ServerSettings;
-  readonly projects: ReadonlyArray<OrchestrationProjectShell>;
-  readonly providers: ReadonlyArray<PullRequestProviderApi>;
-  readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
-  readonly resolveRepositoryIdentity?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]["resolve"];
-  readonly onProjectRead?: () => void;
-}) {
-  // Build in the test scope; per-call Effect.provide would close the marks database on service acquisition.
-  return Effect.flatMap(
-    Layer.build(
-      Layer.mergeAll(
-        Layer.mock(ServerSettingsService.ServerSettingsService)({
-          getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
-        }),
-        Layer.succeed(
-          PullRequestProviderRegistry.PullRequestProviderRegistry,
-          PullRequestProviderRegistry.fromProviders(input.providers),
-        ),
-        Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
-          resolveLink: () => undefined,
-          resolveHandle:
-            input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
-          get: (kind) =>
-            Effect.succeed(
-              kind === "forgejo" ? sshAliasHost : ({} as SourceControlProvider["Service"]),
-            ),
-        }),
-        Layer.mock(ProjectService.ProjectService)({
-          listShells: (options) =>
-            Effect.sync(() => {
-              input.onProjectRead?.();
-              return input.projects.filter(
-                (project) => options?.projectIds?.includes(project.id) ?? true,
-              );
-            }),
-          getShell: (projectId) =>
-            Effect.sync(() => {
-              input.onProjectRead?.();
-              return Option.fromNullishOr(input.projects.find((p) => p.id === projectId));
-            }),
-        }),
-        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
-          resolve: input.resolveRepositoryIdentity ?? (() => Effect.succeed(null)),
-        }),
-        SourceControlRateLimit.layer,
-        PullRequestFilesViewed.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
-        Layer.effect(PullRequestReadCache.PullRequestReadCache, PullRequestReadCache.make).pipe(
-          Layer.provide(KeyValueStore.layerMemory),
-          Layer.provide(NodeServices.layer),
-        ),
-      ),
-    ),
-    (context) => Effect.provideContext(PullRequestService.make, context),
-  );
-}
 
 const verifiedCloudCredential: NonNullable<PullRequestProviderApi["withVerifiedCredential"]> = (
   _input,
