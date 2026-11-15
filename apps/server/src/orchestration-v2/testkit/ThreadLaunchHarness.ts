@@ -239,6 +239,7 @@ export function makeHarness(options: HarnessOptions = {}) {
   const layerLaunch = ThreadLaunch.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        layerOrchestrator,
         layerRegistry,
         layerExternalServices,
         prepared === undefined && options.launchEvents === undefined
