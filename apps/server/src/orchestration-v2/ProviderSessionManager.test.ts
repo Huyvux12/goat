@@ -1711,6 +1711,7 @@ it.effect(
           resolved?.capabilities,
           new Set(["preview", "orchestration", "worktree", "pull-requests", "screen"]),
         );
+        assert.isFalse(yield* captured!.hasPendingWake!);
         yield* manager.close(providerSessionId);
         assert.isUndefined(yield* mcpSessions.read(threadId));
         assert.isUndefined(yield* registry.resolve(token!));

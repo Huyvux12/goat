@@ -12,6 +12,9 @@ import { resolveProjectSettings } from "@goat/shared/projectSettings";
 import {
   isOrchestrationV2WorkActive,
   type AuthEnvironmentScope,
+  type OrchestrationV2AppThread,
+  type OrchestrationV2Run,
+  type OrchestrationV2Subagent,
   type RunId,
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
@@ -51,6 +54,7 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@goat/provider-core/server/McpProviderSessions";
+import type * as McpProviderSession from "@goat/provider-core/server/mcpSession";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CuaDriver from "../cua/CuaDriver.ts";
 import * as ComputerUse from "../cua/ComputerUseAttachment.ts";
@@ -120,6 +124,30 @@ const WORKING_RUN_STATUSES: ReadonlySet<string> = new Set([
   "running",
   "waiting",
 ]);
+
+/** Matches planDelegatedCompletionDelivery: true while a delegated task's result still wakes the thread. */
+export const delegatedTaskWillWake = (records: {
+  readonly thread: Pick<OrchestrationV2AppThread, "archivedAt" | "deletedAt">;
+  readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "delegatedCompletion">>;
+  readonly subagents: ReadonlyArray<
+    Pick<OrchestrationV2Subagent, "origin" | "status" | "runId" | "completionDelivery">
+  >;
+}): boolean =>
+  records.thread.archivedAt === null &&
+  records.thread.deletedAt === null &&
+  records.subagents.some((task) => {
+    const run = records.runs.find((candidate) => candidate.id === task.runId);
+    const delivery = task.completionDelivery?.state;
+    return (
+      task.origin === "app_owned" &&
+      isOrchestrationV2WorkActive(task.status) &&
+      run !== undefined &&
+      (run.delegatedCompletion?.disposition ?? "open") === "open" &&
+      delivery !== "acknowledged" &&
+      delivery !== "delivered" &&
+      delivery !== "disposed"
+    );
+  });
 
 export class ProviderSessionManagerV2 extends Context.Service<
   ProviderSessionManagerV2,
@@ -243,6 +271,16 @@ export const layerWithOptions = (
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const withPendingWake = <C extends McpProviderSession.McpProviderSessionConfig>(
+        threadId: ThreadId,
+        config: C,
+      ): C => ({
+        ...config,
+        hasPendingWake: projectionStore.getThreadRecords(threadId, ["runs", "subagents"]).pipe(
+          Effect.map(delegatedTaskWillWake),
+          Effect.orElseSucceed(() => false),
+        ),
+      });
       const agentScope = yield* AgentScope;
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId, readOnly: boolean) {
@@ -548,7 +586,7 @@ export const layerWithOptions = (
                     yield* mcpSessions.set(
                       yield* withNativeSubagentLimit(
                         threadId,
-                        withUrlOpener(withTurnSkills(existing)),
+                        withUrlOpener(withTurnSkills(withPendingWake(threadId, existing))),
                       ),
                     );
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
@@ -596,7 +634,11 @@ export const layerWithOptions = (
                 yield* mcpSessions.set(
                   yield* withNativeSubagentLimit(
                     threadId,
-                    withUrlOpener(withTurnSkills({ ...credential.config, goatMcpServers })),
+                    withUrlOpener(
+                      withTurnSkills(
+                        withPendingWake(threadId, { ...credential.config, goatMcpServers }),
+                      ),
+                    ),
                   ),
                 );
                 yield* Ref.update(

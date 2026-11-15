@@ -1,7 +1,14 @@
 import * as MemoryDerivedCache from "../../memory/MemoryDerivedCache.ts";
 import { makeProviderFailure } from "@goat/provider-core/server/failure";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { type OrchestrationV2ProviderThread, RunAttemptId, ThreadId } from "@goat/contracts";
+import {
+  EnvironmentId,
+  type OrchestrationV2ProviderThread,
+  ProviderInstanceId,
+  RunAttemptId,
+  ThreadId,
+} from "@goat/contracts";
+import * as Deferred from "effect/Deferred";
 import { assert, describe, it } from "@effect/vitest";
 
 import * as CodexReplay from "effect-codex-app-server/replay";
@@ -18,7 +25,11 @@ import * as McpProviderSessions from "@goat/provider-core/server/McpProviderSess
 import * as IdAllocator from "@goat/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@goat/provider-core/server/ProviderAdapter";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
-import { makeCodexTestTurnInput } from "./CodexAdapterV2.testkit.ts";
+import {
+  CODEX_TEST_MODEL_SELECTION,
+  CODEX_TEST_RUNTIME_POLICY,
+  makeCodexTestTurnInput,
+} from "./CodexAdapterV2.testkit.ts";
 import { codexReplayPreamble, makeCodexReplayHarness } from "./CodexAdapterV2.replay.testkit.ts";
 
 const layerAdapterTest = Layer.mergeAll(
@@ -486,6 +497,161 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.deepEqual(
           harness.terminalEvents().map((event) => event.status),
           ["completed"],
+        );
+      }).pipe(Effect.scoped, Effect.provide(layerAdapterTest)),
+    );
+
+    it.effect("pauses a goal at once while a delegated task will wake the thread", () =>
+      Effect.gen(function* () {
+        const lookupStarted = yield* Deferred.make<void>();
+        const lookupAnswered = yield* Deferred.make<void>();
+        const turnStart = (id: number, text: string) =>
+          Effect.map(
+            CodexAdapterV2.buildCodexTurnStartParams({
+              nativeThreadId,
+              codexInput: [{ type: "text", text }],
+              runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+              modelSelection: CODEX_TEST_MODEL_SELECTION,
+              hasGoatMcp: true,
+            }),
+            (params): CodexReplay.CodexAppServerReplayEntry => ({
+              type: "expect_outbound",
+              label: "turn/start",
+              frame: { id, method: "turn/start", params },
+            }),
+          );
+        const transcript = makeCodexReplayTranscript({
+          scenario: "goal-paused-for-wake",
+          entries: [
+            ...sessionStart,
+            // A changed MCP credential makes GOAT check the thread before reloading it; an
+            // unexplained goal read counts as busy and defers the reload.
+            {
+              type: "expect_outbound",
+              label: "busy check",
+              frame: { id: 3, method: "thread/goal/get", params: { threadId: nativeThreadId } },
+            },
+            {
+              type: "emit_inbound",
+              label: "busy check",
+              frame: { id: 3, error: { code: -32000, message: "Unavailable." } },
+            },
+            yield* turnStart(4, "Delegate and wait"),
+            ...withReplayRequestId(
+              codexReplayPreamble({ nativeThreadId, nativeTurnId: "goal-turn", prompt: "" }).slice(
+                6,
+              ),
+              4,
+            ),
+            notification("goal active", "thread/goal/updated", {
+              threadId: nativeThreadId,
+              turnId: "goal-turn",
+              goal: codexGoal("active", 10),
+            }),
+            notification("turn done", "turn/completed", {
+              threadId: nativeThreadId,
+              turn: makeCodexReplayTurn({ id: "goal-turn", status: "completed" }),
+            }),
+            // Codex continues before the wake lookup answers.
+            notification("continuation", "turn/started", {
+              threadId: nativeThreadId,
+              turn: makeCodexReplayTurn({ id: "goal-turn-2", status: "inProgress" }),
+            }),
+            ...request(
+              5,
+              "thread/goal/set",
+              { threadId: nativeThreadId, status: "paused" },
+              { goal: codexGoal("paused", 10) },
+            ),
+            ...request(
+              6,
+              "thread/goal/set",
+              { threadId: nativeThreadId, status: "paused" },
+              { goal: codexGoal("paused", 10) },
+            ),
+            ...request(
+              7,
+              "turn/interrupt",
+              { threadId: nativeThreadId, turnId: "goal-turn-2" },
+              {},
+            ),
+            ...request(
+              8,
+              "thread/goal/get",
+              { threadId: nativeThreadId },
+              { goal: codexGoal("paused", 10) },
+            ),
+            // A changed MCP credential makes GOAT check the thread before reloading it; an
+            // unexplained goal read counts as busy and defers the reload.
+            {
+              type: "expect_outbound",
+              label: "busy check",
+              frame: { id: 9, method: "thread/goal/get", params: { threadId: nativeThreadId } },
+            },
+            {
+              type: "emit_inbound",
+              label: "busy check",
+              frame: { id: 9, error: { code: -32000, message: "Unavailable." } },
+            },
+            yield* turnStart(10, "Child finished"),
+            ...withReplayRequestId(
+              codexReplayPreamble({ nativeThreadId, nativeTurnId: "wake-turn", prompt: "" }).slice(
+                6,
+              ),
+              10,
+            ),
+            ...request(
+              11,
+              "thread/goal/set",
+              { threadId: nativeThreadId, status: "active" },
+              { goal: codexGoal("active", 10) },
+            ),
+            notification("goal resumed", "thread/goal/updated", {
+              threadId: nativeThreadId,
+              turnId: "wake-turn",
+              goal: codexGoal("active", 10),
+            }),
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* (yield* McpProviderSessions.McpProviderSessions).set({
+          environmentId: EnvironmentId.make("test"),
+          threadId: harness.threadId,
+          providerSessionId: "wake-session",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          endpoint: "http://127.0.0.1:43123/mcp",
+          authorizationHeader: "Bearer test",
+          browserToolsAvailable: true,
+          hasPendingWake: Deferred.succeed(lookupStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(lookupAnswered)),
+            Effect.as(true),
+          ),
+        });
+        yield* harness.runtime.startTurn(yield* goalTurnInput(harness, "Delegate and wait"));
+        yield* Deferred.await(lookupStarted);
+        yield* Deferred.succeed(lookupAnswered, undefined);
+        // Settles without waiting out the continuation grace.
+        yield* harness.firstTerminal;
+        assert.deepEqual(providerGoals(harness.events), ["active", "paused"]);
+        assert.deepEqual(
+          harness.terminalEvents().map((event) => event.status),
+          ["completed"],
+        );
+        assert.deepEqual(
+          harness.events.flatMap((event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.status === "running"
+              ? [event.providerTurn.ordinal]
+              : [],
+          ),
+          [1],
+        );
+
+        // Inspecting the goal must not cancel its resume on the wake.
+        yield* harness.runtime.startTurn(yield* goalTurnInput(harness, "/goal"));
+        yield* harness.runtime.startTurn(yield* goalTurnInput(harness, "Child finished"));
+        yield* harness.awaitUntil(
+          () => providerGoals(harness.events).at(-1) === "active",
+          "goal resumed on the wake",
         );
       }).pipe(Effect.scoped, Effect.provide(layerAdapterTest)),
     );
