@@ -4,6 +4,7 @@ import { MAC_COMMAND_USAGE_DESCRIPTIONS } from "./lib/mac-command-usage-descript
 import {
   LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
+  makeLinuxPackagedPayloadValidator,
 } from "./desktop-artifact-linux.ts";
 import { makeMacPackagedPayloadValidator } from "./desktop-artifact-mac.ts";
 import { countWindowsPayloadFiles } from "./desktop-artifact-windows-payload.ts";
@@ -4618,6 +4619,17 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         platform: options.platform,
         runtimeArchivePath: options.wslRuntime,
       }),
+      verbose: options.verbose,
+    });
+  }
+  // The probe runs on the host Node, so a cross-arch build skips it.
+  if (
+    options.platform === "linux" &&
+    hostPlatform === "linux" &&
+    options.arch === (yield* HostProcess.Architecture)
+  ) {
+    yield* makeLinuxPackagedPayloadValidator(verifyPackagedBundleIsSelfContained)({
+      stageDistDir,
       verbose: options.verbose,
     });
   }
