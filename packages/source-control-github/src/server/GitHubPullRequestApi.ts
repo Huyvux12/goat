@@ -145,6 +145,7 @@ import type {
   ProviderChangeRequestSummary,
   ProviderListCursor,
 } from "@goat/source-control-core/server/PullRequestProvider";
+import { LIST_STATES, type GitHubPullRequestListPage } from "./gitHubPullRequestListStates.ts";
 
 export class GitHubPullRequestReadError extends Schema.TaggedError<GitHubPullRequestReadError>()(
   "GitHubPullRequestReadError",
@@ -334,19 +335,6 @@ const { isNotFoundOnly } = GitHubGraphQlClient;
 const DIFF_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const DIFF_TIMEOUT = Duration.seconds(60);
 const DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
-
-const LIST_STATES: Record<PullRequestListState, ReadonlyArray<"OPEN" | "CLOSED" | "MERGED">> = {
-  all: ["OPEN", "CLOSED", "MERGED"],
-  open: ["OPEN"],
-  closed: ["CLOSED", "MERGED"],
-  merged: ["MERGED"],
-};
-
-interface GitHubPullRequestListPage {
-  readonly items: ReadonlyArray<GitHubPullRequestListItem>;
-  readonly rawCount: number;
-  readonly endCursor: string | null;
-}
 
 const PULL_REQUEST_FALLBACK_MAX_ROWS = 1_000;
 
