@@ -267,6 +267,28 @@ describe("DesktopBrowserHost", () => {
     }),
   );
 
+  it.effect("drops a held load failure once the waiting guest commits a new document", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const loading = makeDebuggee({ loading: true });
+      const other = { ...key, tabId: "tab-2" };
+      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
+
+      yield* Effect.yieldNow;
+      host.attach(key, loading.tab);
+      // A reattach replays a failure from the guest's previous load while a new one is in flight.
+      host.loadFailed(key, { url: "http://localhost/old", code: -102, description: "Failed" });
+      loading.navigate();
+      loading.domReady();
+      host.attach(other, makeDebuggee().tab);
+
+      expect(yield* Fiber.join(reader)).toEqual([
+        { type: "attached", ...key },
+        { type: "attached", ...other },
+      ]);
+    }),
+  );
+
   it.effect(
     "announces a first page that never comes up, but never a tab closed or destroyed first",
     () =>

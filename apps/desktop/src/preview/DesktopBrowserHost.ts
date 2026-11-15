@@ -525,6 +525,8 @@ export const make = Effect.gen(function* () {
       // A screenshot pending when the page loads a new document, a reload included, can
       // stay unanswered. A crashed page lands here once it reloads, well after its renderer died.
       onNewDocument: () => {
+        // A failure held for the previous document no longer describes the page.
+        tab.heldFailure = null;
         // Before the next screenshot starts, so its own holds survive.
         tab.capturing.clear();
         dropFocusHolds(tab);
