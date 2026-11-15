@@ -70,7 +70,6 @@ import {
 import { SKILL_MENTION_PATTERN } from "@goat/shared/composerInlineTokens";
 import {
   appendGeneratedImageMarkdown,
-  codexImageGenerationProjection,
   type CodexImageGenerationItem,
 } from "./CodexGeneratedImageMarkdown.ts";
 import { CodexAppServerClientFactory } from "./CodexAppServerClientFactory.ts";
@@ -1525,7 +1524,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const imageTurns = new Map<
           string,
           {
-            readonly running: Set<string>;
+            readonly running: Map<
+              string,
+              {
+                readonly revisedPrompt: string | null;
+                readonly transparentBackground: boolean | null;
+                readonly inputImages?: NonNullable<CodexImageGenerationItem["inputImages"]>;
+              }
+            >;
             readonly saved: Map<string, string>;
             pending: boolean;
             answer?: { readonly id: string; readonly text: string };
@@ -1534,7 +1540,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const imageTurn = (nativeTurnId: string) => {
           let state = imageTurns.get(nativeTurnId);
           if (state === undefined) {
-            state = { running: new Set(), saved: new Map(), pending: false };
+            state = { running: new Map(), saved: new Map(), pending: false };
             imageTurns.set(nativeTurnId, state);
           }
           return state;
@@ -1588,6 +1594,19 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const clearImageWork = Effect.fn("CodexAdapterV2.clearImageWork")(function* (
           context: ActiveCodexTurnContext,
         ) {
+          for (const [id, input] of imageTurns.get(context.nativeTurnId)?.running ?? []) {
+            yield* emitImageGenerationItem(
+              context,
+              {
+                type: "imageGeneration",
+                id,
+                ...input,
+                status: "cancelled",
+                result: "",
+              },
+              true,
+            );
+          }
           yield* emitImageWorkState(context, false);
           imageTurns.delete(context.nativeTurnId);
         });
@@ -3409,16 +3428,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         );
 
         const buildDynamicToolArtifacts = Effect.fn("CodexAdapterV2.buildDynamicToolArtifacts")(
-          function* (
-            context: ActiveCodexTurnContext,
-            item: CodexDynamicToolItem | CodexImageGenerationItem,
-          ) {
+          function* (context: ActiveCodexTurnContext, item: CodexDynamicToolItem) {
             if (context.subagent === null)
               yield* agentMessageDeltas.flushBeforeTool(context.nativeTurnId);
             const updatedAt = yield* DateTime.now;
-            const status = codexItemStatus(
-              item.type === "imageGeneration" ? "completed" : item.status,
-            );
+            const status = codexItemStatus(item.status);
             const completedAt = status.completed ? updatedAt : null;
             const nodeId = idAllocator.derive.nodeFromProviderItem({
               driver: CODEX_PROVIDER,
@@ -3429,12 +3443,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               nativeItemId: item.id,
             });
             const { ordinal, startedAt } = yield* resolveItemPosition(context, item.id);
-            const projection: CodexDynamicToolProjection =
-              item.type === "imageGeneration"
-                ? codexImageGenerationProjection(item)
-                : yield* projectCodexDynamicToolItem(item).pipe(
-                    Effect.provideService(Crypto.Crypto, crypto),
-                  );
+            const projection = yield* projectCodexDynamicToolItem(item).pipe(
+              Effect.provideService(Crypto.Crypto, crypto),
+            );
             const node: OrchestrationV2ExecutionNode = {
               id: nodeId,
               threadId: context.projectionThreadId,
@@ -3470,6 +3481,61 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               ...projection,
             };
             return { node, turnItem };
+          },
+        );
+
+        const emitImageGenerationItem = Effect.fn("CodexAdapterV2.emitImageGenerationItem")(
+          function* (
+            context: ActiveCodexTurnContext,
+            item: CodexImageGenerationItem,
+            completed: boolean,
+          ) {
+            const cancelled = completed && item.status === "cancelled";
+            const failed = item.status === "failed" || item.failure != null;
+            const inputImages = item.inputImages?.map((image) => image.path) ?? [];
+            // Inline bytes stay on the tool output so image asset ingestion owns their storage.
+            const inlineImage =
+              completed && !failed && !item.savedPath?.trim() && "result" in item && item.result
+                ? { content: [{ type: "image", mimeType: "image/png", data: item.result }] }
+                : {};
+            const artifacts = yield* buildDynamicToolArtifacts(context, {
+              type: "dynamicToolCall",
+              id: item.id,
+              namespace: "image_gen",
+              tool: "imagegen",
+              status: completed ? (failed ? "failed" : "completed") : "inProgress",
+              arguments: {
+                ...(item.revisedPrompt == null ? {} : { prompt: item.revisedPrompt }),
+                ...(item.transparentBackground == null
+                  ? {}
+                  : { transparent_background: item.transparentBackground }),
+                ...(inputImages.length === 0 ? {} : { inputImages }),
+              },
+            });
+            yield* emitProviderEvent({
+              type: "node.updated",
+              driver: CODEX_PROVIDER,
+              node: { ...artifacts.node, ...(cancelled ? { status: "cancelled" } : {}) },
+            });
+            yield* emitProviderEvent({
+              type: "turn_item.updated",
+              driver: CODEX_PROVIDER,
+              turnItem: {
+                ...artifacts.turnItem,
+                title: "Generate image",
+                ...(cancelled ? { status: "cancelled" } : {}),
+                ...(completed
+                  ? {
+                      output: {
+                        status: item.status,
+                        ...(item.savedPath == null ? {} : { savedPath: item.savedPath }),
+                        ...(item.failure == null ? {} : { failure: item.failure }),
+                        ...inlineImage,
+                      },
+                    }
+                  : {}),
+              },
+            });
           },
         );
 
@@ -4575,7 +4641,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
             if (payload.item.type === "imageGeneration") {
               if (!(yield* Ref.get(interruptingNativeTurns)).has(payload.turnId)) {
-                imageTurn(payload.turnId).running.add(payload.item.id);
+                imageTurn(payload.turnId).running.set(payload.item.id, {
+                  revisedPrompt: payload.item.revisedPrompt ?? null,
+                  transparentBackground: payload.item.transparentBackground ?? null,
+                  ...(payload.item.inputImages === undefined
+                    ? {}
+                    : { inputImages: payload.item.inputImages }),
+                });
+                yield* emitImageGenerationItem(context, payload.item, false);
                 yield* emitImageWorkState(context, true);
               }
               return;
@@ -4880,6 +4953,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
             if (payload.item.type === "imageGeneration") {
               if ((yield* Ref.get(interruptingNativeTurns)).has(payload.turnId)) return;
+              yield* emitImageGenerationItem(context, payload.item, true);
               const { id, savedPath, status, failure } = payload.item;
               const state = imageTurn(payload.turnId);
               if (savedPath?.trim() && status === "completed" && failure == null) {
@@ -4889,26 +4963,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 !savedPath &&
                 status === "completed" &&
                 failure == null &&
-                ("fileId" in payload.item || payload.item.result)
+                "fileId" in payload.item
               ) {
-                // Keep inline bytes on the tool output so the existing image asset
-                // ingestion/serving path owns their storage and wire projection.
-                if ("fileId" in payload.item) {
-                  yield* Effect.logWarning(
-                    "Codex generated image has only an attachment id and no local copy",
-                  ).pipe(Effect.annotateLogs({ fileId: payload.item.fileId }));
-                }
-                const artifacts = yield* buildDynamicToolArtifacts(context, payload.item);
-                yield* emitProviderEvent({
-                  type: "node.updated",
-                  driver: CODEX_PROVIDER,
-                  node: artifacts.node,
-                });
-                yield* emitProviderEvent({
-                  type: "turn_item.updated",
-                  driver: CODEX_PROVIDER,
-                  turnItem: artifacts.turnItem,
-                });
+                yield* Effect.logWarning(
+                  "Codex generated image has only an attachment id and no local copy",
+                ).pipe(Effect.annotateLogs({ fileId: payload.item.fileId }));
               }
               // Idle release runs concurrently, so keep this work pending through projection.
               if (settled) {
@@ -5831,7 +5890,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               state.saved.clear();
               return;
             }
-            const message = { id: finalAnswer?.id ?? firstImageItemId, text };
+            const message = {
+              id: finalAnswer?.id ?? `generated-image-message:${firstImageItemId}`,
+              text,
+            };
             state.answer = message;
             const artifacts = yield* buildAgentMessageArtifacts(context, message, true);
             yield* emitProviderEvent({
