@@ -235,7 +235,7 @@ export const CursorDriver: ProviderDriver<
       environment: currentEnvironment,
       resolveSessionApiKey: auth.requireSessionApiKey,
       validateSessionApiKey: auth.validateSessionApiKey,
-      agentTransportMatches: (yield* CursorSdk.CursorSdk).agentTransportMatches,
+      agentTransportRefusal: (yield* CursorSdk.CursorSdk).agentTransportRefusal,
       getModels: () => catalogModels,
     }).pipe(
       Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {

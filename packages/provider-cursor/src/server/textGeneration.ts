@@ -106,14 +106,12 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
             "Cursor backend differs from the loaded SDK or current environment. Restart GOAT to use a different Cursor backend.",
         });
       }
-      if (
-        sdk.agentTransportMatches !== undefined &&
-        !(yield* sdk.agentTransportMatches(yield* currentEnvironment))
-      ) {
-        return yield* new TextGenerationError({
-          operation,
-          detail: CursorSdk.CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE,
-        });
+      const transportRefusal =
+        sdk.agentTransportRefusal === undefined
+          ? undefined
+          : yield* sdk.agentTransportRefusal(yield* currentEnvironment);
+      if (transportRefusal !== undefined) {
+        return yield* new TextGenerationError({ operation, detail: transportRefusal });
       }
       const { Agent } = yield* Effect.try(sdk.load);
       // sandbox.json expands writable paths independently of settingSources; the public API cannot override it.

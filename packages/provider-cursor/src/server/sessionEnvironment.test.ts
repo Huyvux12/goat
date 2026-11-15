@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as SessionEnvironment from "./sessionEnvironment.ts";
+import { CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE } from "./CursorSdk.ts";
 
 it.effect("a session retains its environment when the host changes", () =>
   Effect.gen(function* () {
@@ -23,7 +24,7 @@ it.effect(
     Effect.gen(function* () {
       const session = yield* SessionEnvironment.forSession(
         { CURSOR_CONFIG_DIR: "/http1-config" },
-        { agentTransportMatches: () => Effect.succeed(false) },
+        { agentTransportRefusal: () => Effect.succeed(CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE) },
       );
       const error = yield* session.validate.pipe(Effect.flip);
       expect(String(error.cause)).toContain("All Cursor agents share one transport");
@@ -35,7 +36,10 @@ it.effect("a session decides its agent transport once, when it opens", () =>
     let reads = 0;
     const session = yield* SessionEnvironment.forSession(
       {},
-      { agentTransportMatches: () => Effect.sync(() => ++reads === 1) },
+      {
+        agentTransportRefusal: () =>
+          Effect.sync(() => (++reads === 1 ? undefined : CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE)),
+      },
     );
     // A running session's agent reopens validate again; the file may have changed since it opened.
     yield* session.validate;

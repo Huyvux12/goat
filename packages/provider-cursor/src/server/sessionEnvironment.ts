@@ -4,7 +4,6 @@ import { mergeProviderInstanceEnvironment } from "@goat/provider-core/server/ins
 import * as HostProcess from "@goat/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import { CursorAgentSdkRunnerError } from "./CursorAgentSdk.ts";
-import { CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE } from "./CursorSdk.ts";
 
 /** A plain environment, or one merged again from the host environment each time it runs. */
 export type Source = NodeJS.ProcessEnv | Effect.Effect<NodeJS.ProcessEnv>;
@@ -17,8 +16,8 @@ export interface SessionAuth {
     key: string | undefined,
     environmentKey: string | undefined,
   ) => Effect.Effect<void, ProviderSetupError>;
-  readonly agentTransportMatches?:
-    | ((environment: NodeJS.ProcessEnv) => Effect.Effect<boolean>)
+  readonly agentTransportRefusal?:
+    | ((environment: NodeJS.ProcessEnv) => Effect.Effect<string | undefined>)
     | undefined;
 }
 
@@ -42,9 +41,9 @@ export const forSession = (source: Source, auth: SessionAuth = {}) =>
       const key: Effect.Effect<string | undefined, ProviderSetupError> =
         auth.resolveSessionApiKey?.(environmentKey) ?? Effect.succeed(environmentKey);
       // Decided once: the SDK's transport cannot change, so a running session never re-reads it.
-      const transport = auth.agentTransportMatches?.(copy) ?? Effect.succeed(true);
+      const transport = auth.agentTransportRefusal?.(copy) ?? Effect.undefined;
       return Effect.all([key, transport]).pipe(
-        Effect.map(([apiKey, transportMatches]) => ({
+        Effect.map(([apiKey, transportRefusal]) => ({
           environment: copy,
           apiKey,
           validate: (auth.validateSessionApiKey?.(apiKey, environmentKey) ?? Effect.void).pipe(
@@ -64,12 +63,12 @@ export const forSession = (source: Source, auth: SessionAuth = {}) =>
               ),
             ),
             Effect.andThen(
-              transportMatches
+              transportRefusal === undefined
                 ? Effect.void
                 : Effect.fail(
                     new CursorAgentSdkRunnerError({
                       method: "open",
-                      cause: new Error(CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE),
+                      cause: new Error(transportRefusal),
                     }),
                   ),
             ),

@@ -219,7 +219,8 @@ describe("CursorTextGeneration", () => {
         Layer.succeed(CursorSdk.CursorSdk, {
           load: loadCursorSdk,
           loadSqlite: loadCursorSqlite,
-          agentTransportMatches: () => Effect.succeed(false),
+          agentTransportRefusal: () =>
+            Effect.succeed(CursorSdk.CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE),
         }).pipe(Layer.provideMerge(Layer.merge(layerFs, Path.layer))),
       ),
     ),
