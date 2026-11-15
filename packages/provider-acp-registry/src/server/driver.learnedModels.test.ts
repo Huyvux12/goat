@@ -261,7 +261,7 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
     }),
   );
 
-  it.effect("a check's live state comes from the environment its readiness used", () =>
+  it.effect("a check whose environment changes while it runs is redone under the current one", () =>
     Effect.gen(function* () {
       const reached = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
@@ -296,10 +296,47 @@ it.layer(driverLayer, { excludeTestServices: true })("AcpRegistryDriver learned 
         Effect.forkScoped({ startImmediately: true }),
       );
       yield* Deferred.await(reached);
-      // Readiness ran under C; the host returns to A before the check reads the live state.
+      // Readiness ran under C; the host returns to A before the check reads the live state, so
+      // the check reads readiness again under A and shows what A's sessions taught.
       host.HOME = "/profile/a";
       yield* Deferred.succeed(release, undefined);
-      expect(effortBySlug(yield* Fiber.join(check))).not.toContain("effort");
+      expect(effortBySlug(yield* Fiber.join(check))).toBe("model-a:effort,model-b:");
+    }),
+  );
+
+  it.effect("a check that outlives its profile does not commit over the next profile", () =>
+    Effect.gen(function* () {
+      const reached = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      // Only the readiness of the one check fiber the test holds; other callers pass through.
+      let heldFiber: number | undefined;
+      const { instance, host, showing, publish } = yield* makeProfiles((_settings) => {
+        if (heldFiber === undefined || Fiber.getCurrent()?.id !== heldFiber) {
+          return Effect.succeed(ready);
+        }
+        heldFiber = undefined;
+        // Not installed under A, so no probe would restore B's options after A commits.
+        return Deferred.succeed(reached, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.as({ status: "not_found", agentId: "test-agent" } as const),
+        );
+      });
+      const probed = yield* showing((snapshot) => effortBySlug(snapshot) === "model-a:,model-b:");
+      yield* instance.snapshot.refresh;
+      yield* Fiber.join(probed);
+      const check = yield* instance.snapshot.refresh.pipe(Effect.forkScoped);
+      heldFiber = check.id;
+      yield* Deferred.await(reached);
+      // The held check read profile A; B becomes current and a B session teaches an option.
+      host.HOME = "/profile/b";
+      const learned = yield* showing((snapshot) =>
+        effortBySlug(snapshot).includes("model-b:effort"),
+      );
+      yield* publish("model-b");
+      yield* Fiber.join(learned);
+      yield* Deferred.succeed(release, undefined);
+      expect(effortBySlug(yield* Fiber.join(check))).toBe("model-a:,model-b:effort");
+      expect(effortBySlug(yield* instance.snapshot.getSnapshot)).toBe("model-a:,model-b:effort");
     }),
   );
 

@@ -72,6 +72,8 @@ const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
 // Cache only successful authenticated probes so sign-in changes remain visible.
 const PROBE_SUCCESS_TTL_MS = 15 * 60 * 1_000;
 const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
+const environmentText = (environment: NodeJS.ProcessEnv) =>
+  JSON.stringify(Object.entries(environment).toSorted(([a], [b]) => a.localeCompare(b)));
 const MAINTENANCE = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: null,
@@ -585,14 +587,24 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             }),
           );
     });
-    // Readiness and the live state come from one captured environment, taken after the learned
-    // generation so a check that outlives its environment cannot displace the next one's.
-    const checkProvider = Effect.gen(function* () {
+    // Readiness and the live state share one environment, read after the learned generation. A
+    // check whose environment changed meanwhile is redone (twice at most), so it does not commit
+    // an earlier environment's snapshot over the current one's.
+    const checkFrom: (
+      attempt: number,
+    ) => Effect.Effect<ServerProvider, never, AcpRegistrySupport.AcpRegistryCatalog> = Effect.fn(
+      "AcpRegistryDriver.check",
+    )(function* (attempt: number) {
       const generation = yield* learnedModels.generation;
       const environment = yield* currentEnvironment;
       const provider = yield* checkAcpRegistryProviderReadiness(readinessInput(environment));
+      const moved = environmentText(yield* currentEnvironment) !== environmentText(environment);
+      if (moved && attempt < 2) return yield* checkFrom(attempt + 1);
       return yield* withLiveRuntimeState(provider, environment, { generation });
-    }).pipe(Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog));
+    });
+    const checkProvider = checkFrom(0).pipe(
+      Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
+    );
     const enrichProvider = (environment: NodeJS.ProcessEnv) =>
       checkAcpRegistryProviderStatus(
         {
@@ -706,13 +718,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                   Effect.gen(function* () {
                     const matchesEnvironment = Effect.map(
                       currentEnvironment,
-                      (current) =>
-                        JSON.stringify(
-                          Object.entries(current).toSorted(([a], [b]) => a.localeCompare(b)),
-                        ) ===
-                        JSON.stringify(
-                          Object.entries(environment).toSorted(([a], [b]) => a.localeCompare(b)),
-                        ),
+                      (current) => environmentText(current) === environmentText(environment),
                     );
                     const current = yield* Ref.get(enrichmentCache);
                     if (current.generation !== generation || !(yield* matchesEnvironment)) return;
