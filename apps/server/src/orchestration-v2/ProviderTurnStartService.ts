@@ -1,3 +1,4 @@
+import { makeProviderRunControls } from "./goat/ProviderRunControls.ts";
 import { restartRequiredIn } from "./ProviderSessionRetirement.ts";
 import { startsNoModelTurn } from "./goat/TurnModelGate.ts";
 import { WorkspaceLeaseBusyError } from "./goat/WorkspaceLeaseBusyError.ts";
@@ -142,80 +143,7 @@ export const layer: Layer.Layer<
     const adapterRegistry = yield* Effect.serviceOption(ProviderAdapters.ProviderAdapterRegistryV2);
     const cloudSources = yield* Effect.serviceOption(CloudSource.CloudTaskSourceService);
     const explainOpenFailure = yield* openFailureExplainer;
-    // Build draining callbacks outside startup scope so they cannot retain full thread history.
-    const makeRunControls = (input: {
-      readonly threadId: ThreadId;
-      readonly runId: RunId;
-      readonly attemptId: OrchestrationV2RunAttempt["id"];
-      readonly providerThreadId: OrchestrationV2ProviderThread["id"];
-      readonly runOrdinal: number;
-      readonly inheritedBackgroundTurnItems: ReturnType<
-        typeof RunExecutionService.selectInheritedBackgroundTurnItems
-      >;
-    }) => {
-      const isCurrentAttemptInStatus = (expectedStatus: OrchestrationV2Run["status"]) =>
-        projectionStore.getRuntimeRecoveryProjection(input.threadId).pipe(
-          Effect.map((current) => {
-            const run = current.runs.find((candidate) => candidate.id === input.runId);
-            return run?.activeAttemptId === input.attemptId && run.status === expectedStatus;
-          }),
-        );
-      return {
-        isCurrentAttemptInStatus,
-        loadInheritedBackgroundTurnItems: () =>
-          projectionStore.getRuntimeRecoveryProjection(input.threadId).pipe(
-            Effect.map((current) =>
-              RunExecutionService.selectInheritedBackgroundTurnItems({
-                threadId: input.threadId,
-                currentProviderThreadId: input.providerThreadId,
-                currentRunOrdinal: input.runOrdinal,
-                runs: current.runs,
-                turnItems: current.turnItems,
-              }),
-            ),
-            Effect.catchCause(() => Effect.succeed(input.inheritedBackgroundTurnItems)),
-          ),
-        shouldStartProviderTurn: () => isCurrentAttemptInStatus("running"),
-        shouldFinalizeRun: () =>
-          projectionStore.getRuntimeRecoveryProjection(input.threadId).pipe(
-            Effect.map((current) => {
-              const run = current.runs.find((candidate) => candidate.id === input.runId);
-              return (
-                run?.activeAttemptId === input.attemptId &&
-                (run.status === "starting" || run.status === "running")
-              );
-            }),
-          ),
-        hasUnpairedRunInterruptRequest: () =>
-          projectionStore
-            .hasUnpairedRunInterruptRequest(
-              input.threadId,
-              idAllocator.derive.runSignalTurnItem({
-                runId: input.runId,
-                signal: "interrupt-request",
-              }),
-              idAllocator.derive.runSignalTurnItem({
-                runId: input.runId,
-                signal: "interrupt-result",
-              }),
-            )
-            .pipe(Effect.catchCause(() => Effect.succeed(false))),
-        loadRunInterruptReason: () =>
-          projectionStore
-            .getThreadRecords(input.threadId, ["turnItems"], {
-              turnItemTypes: ["run_interrupt_request"],
-              turnItemRunIds: [input.runId],
-            })
-            .pipe(
-              Effect.map(({ turnItems }) => {
-                const request = turnItems.find((item) => item.type === "run_interrupt_request");
-                return request?.type === "run_interrupt_request" ? request.message : undefined;
-              }),
-              // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-              Effect.catchCause(() => Effect.succeed(undefined)),
-            ),
-      };
-    };
+    const makeRunControls = makeProviderRunControls(projectionStore, idAllocator);
 
     // Run workers keep this callback after startup. Capture only service references
     // and scalar ids, outside start's scope containing the projection and history.
