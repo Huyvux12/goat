@@ -106,7 +106,7 @@ import {
   resolveNewTaskDraftWorkspace,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
-import { useNewTaskRouteFlow } from "./use-new-task-route-flow";
+import { type UnopenableRouteDraft, useNewTaskRouteFlow } from "./use-new-task-route-flow";
 import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 
@@ -186,7 +186,7 @@ type NewTaskFlowContextValue = {
   readonly selectedProviderStatus: ServerProvider | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly flowKey: string;
-  readonly missingRouteDraftId: string | null;
+  readonly unopenableRouteDraft: UnopenableRouteDraft | null;
   readonly setProject: (project: EnvironmentProject) => void;
   readonly getSelectedProjectKey: () => string | null;
   readonly selectEnvironment: (environmentId: EnvironmentId) => void;
@@ -314,7 +314,7 @@ export function NewTaskFlowProvider(
   })();
 
   const selectedProject =
-    routeFlow.pending || routeFlow.missingRouteDraftId !== null
+    routeFlow.pending || routeFlow.unopenableRouteDraft !== null
       ? null
       : (projectsForEnvironment.find(
           (project) => scopedProjectKey(project.environmentId, project.id) === selectedProjectKey,
@@ -1014,7 +1014,7 @@ export function NewTaskFlowProvider(
     selectedProviderStatus,
     providerGroups,
     flowKey,
-    missingRouteDraftId: routeFlow.missingRouteDraftId,
+    unopenableRouteDraft: routeFlow.unopenableRouteDraft,
     setProject,
     getSelectedProjectKey: () => readFlow().projectKey,
     selectEnvironment,
