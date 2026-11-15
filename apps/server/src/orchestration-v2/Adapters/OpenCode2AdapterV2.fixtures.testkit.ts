@@ -630,3 +630,34 @@ export const continuationTurn = (
     },
   };
 };
+
+export const childReport = (inboxID: string, text: string) =>
+  event("session.inbox.enqueued", {
+    inboxID,
+    sessionID: SESSION,
+    item: {
+      type: "synthetic",
+      payload: {
+        text: `<subagent sessionID="${CHILD}" state="completed" description="Sleep">\n${text}\n</subagent>`,
+        description: "Sleep",
+        metadata: { source: "subagent", childID: CHILD, agent: "General", state: "completed" },
+      },
+      delivery: "steer",
+    },
+  });
+
+export const terminals = (
+  runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime,
+  count: number,
+) =>
+  runtime.events.pipe(
+    Stream.filter(
+      (
+        event,
+      ): event is Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn.terminal" }> =>
+        event.type === "turn.terminal",
+    ),
+    Stream.take(count),
+    Stream.runCollect,
+    Effect.forkScoped,
+  );
