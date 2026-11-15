@@ -1604,16 +1604,16 @@ describe("UsageService", () => {
         const accounts = Context.get(context, CursorUsageAccounts.CursorUsageAccounts);
         const scan = (awaitRefresh: boolean) =>
           accounts.scan({
-            instances: [
-              {
-                instanceId: ProviderInstanceId.make("cursor"),
-                environment: { CURSOR_API_KEY: "failing-key" },
-              },
-              {
-                instanceId: ProviderInstanceId.make("cursor-work"),
-                environment: { CURSOR_API_KEY: "new-key" },
-              },
-            ],
+            instances: (
+              [
+                ["cursor", "failing-key"],
+                ["cursor-work", "new-key"],
+              ] as const
+            ).map(([id, key]) => ({
+              instanceId: ProviderInstanceId.make(id),
+              environment: { CURSOR_API_KEY: key },
+              ownVariables: new Set(["CURSOR_API_KEY"]),
+            })),
             keychainUsageEnabled: false,
             windowStartMs: 0,
             retentionCutoffMs: 0,
