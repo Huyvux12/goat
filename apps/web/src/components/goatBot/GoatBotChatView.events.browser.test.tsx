@@ -246,3 +246,16 @@ it("a routine chip lands once: after the person moves on, a flip of Home does no
     .element(page.getByRole("tab", { name: "Library" }))
     .toHaveAttribute("aria-selected", "true");
 });
+
+it("choosing Library while a routine chip's landing waits for its row keeps Library", async () => {
+  setup(null);
+  await using screen = await render(view([line("Check in")]));
+  await userEvent.click(screen.getByRole("button", { name: "Open routine Check in" }));
+  await expect
+    .element(page.getByRole("tab", { name: "Home" }))
+    .toHaveAttribute("aria-selected", "true");
+  await userEvent.click(page.getByRole("tab", { name: "Library" }));
+  await expect
+    .element(page.getByRole("tab", { name: "Library" }))
+    .toHaveAttribute("aria-selected", "true");
+});

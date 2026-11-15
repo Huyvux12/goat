@@ -357,9 +357,9 @@ function WorkPanel({
       <Tabs
         value={tab}
         onValueChange={(value: Tab) => {
+          settleLanding();
           setTab(value);
           setRoutineFocus(null);
-          settleLanding();
         }}
         className="min-h-0 flex-1"
       >
