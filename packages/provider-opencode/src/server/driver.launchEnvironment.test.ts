@@ -384,4 +384,42 @@ it.layer(layer)("OpenCodeDriver launch environment", (it) => {
       assert.deepStrictEqual([...new Set(after)], ["/new"]);
     }).pipe(Effect.scoped),
   );
+
+  it.effect("a loopback server's maintenance sees its CLI replaced on an unchanged PATH", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const executable = root + "/opencode";
+      yield* fs.writeFileString(executable, "#!/bin/sh\n");
+      yield* fs.chmod(executable, 0o755);
+      let versionProbes = 0;
+      const runtime = {
+        ...openCode2Runtime,
+        runOpenCodeCommand: ({ args }: { readonly args: ReadonlyArray<string> }) =>
+          Effect.sync(() => {
+            if (args.join(" ") === "--version") versionProbes += 1;
+            return { stdout: "opencode v2.0.18\n", stderr: "", code: 0 };
+          }),
+      };
+      const instance = yield* create({ serverUrl: "http://127.0.0.1:4096" }, noHttp).pipe(
+        Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime),
+        Effect.provideService(HostProcess.Environment, {
+          PATH: root,
+          HOME: root,
+          XDG_DATA_HOME: root,
+        }),
+        Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })),
+      );
+      yield* instance.snapshot.resolveMaintenance();
+      const probed = versionProbes;
+      yield* instance.snapshot.resolveMaintenance();
+      assert.strictEqual(versionProbes, probed);
+      // Another install replaces the executable in place.
+      yield* fs.remove(executable);
+      yield* fs.writeFileString(executable, "#!/bin/sh\n# reinstalled\n");
+      yield* fs.chmod(executable, 0o755);
+      yield* instance.snapshot.resolveMaintenance();
+      assert.strictEqual(versionProbes, probed + 1);
+    }).pipe(Effect.scoped),
+  );
 });

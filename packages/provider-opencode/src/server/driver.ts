@@ -436,8 +436,7 @@ export const OpenCodeDriver: ProviderDriver<
       );
     const resolveExecutable = yield* SpawnExecutableResolution;
     const platform = yield* HostProcess.Platform;
-    const executableIdentity = (env: NodeJS.ProcessEnv) => {
-      if (effectiveConfig.serverUrl.trim().length > 0) return Effect.succeed(null);
+    const localExecutableIdentity = (env: NodeJS.ProcessEnv) => {
       const path = resolveExecutable(effectiveConfig.binaryPath, platform, env);
       if (path === undefined) return Effect.succeed({ path: effectiveConfig.binaryPath });
       return fileSystem.stat(path).pipe(
@@ -451,6 +450,10 @@ export const OpenCodeDriver: ProviderDriver<
         Effect.orElseSucceed(() => ({ path })),
       );
     };
+    const executableIdentity = (env: NodeJS.ProcessEnv) =>
+      effectiveConfig.serverUrl.trim().length > 0
+        ? Effect.succeed(null)
+        : localExecutableIdentity(env);
     const runtimeProbe = yield* makeOpenCodeRuntimeProbe(
       probeEnvironment.pipe(Effect.flatMap(probeRuntime)),
       currentEnvironment,
@@ -517,16 +520,25 @@ export const OpenCodeDriver: ProviderDriver<
         // The probe identity fingerprints the executable and the merged environment; the hash of
         // the host snapshot resolveMaintenance provides joins it, because a native install's npm
         // advisory reads the host environment, where an instance override can mask a change.
+        // A loopback server's maintenance probes the local CLI, so that executable joins the key.
         lookup: Effect.all({
           env: currentEnvironment,
           identity: runtimeProbe.identity,
           host: HostProcess.Environment,
         }).pipe(
-          Effect.map(({ env, identity, host }) => ({
-            env,
-            resolvedCommandPath: null,
-            install: `${identity}\0${hostEnvironmentHash(host)}`,
-          })),
+          Effect.flatMap(({ env, identity, host }) =>
+            Effect.gen(function* () {
+              return isLocalOpenCodeServerUrl(effectiveConfig.serverUrl)
+                ? yield* localExecutableIdentity(env)
+                : null;
+            }).pipe(
+              Effect.map((local) => ({
+                env,
+                resolvedCommandPath: null,
+                install: `${identity}\0${JSON.stringify(local)}\0${hostEnvironmentHash(host)}`,
+              })),
+            ),
+          ),
         ),
         resolve: ({ env }) => maintenanceFor(maintenanceProbe, Effect.succeed(env)),
       },
