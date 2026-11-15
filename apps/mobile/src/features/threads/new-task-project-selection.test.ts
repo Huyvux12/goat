@@ -7,6 +7,7 @@ import { IncomingShareInbox } from "../sharing/incoming-share-inbox";
 import type { IncomingShareDraft } from "../sharing/incoming-share-model";
 import {
   getProjectScopeSelectionTarget,
+  isSameRepository,
   newTaskDestination,
   newTaskFilteredProject,
   resolveDraftProjectSelection,
@@ -121,6 +122,7 @@ describe("resolveEnvironmentProjectMatch", () => {
       makeProject("t3code-clone", "server", { repositoryKey: "github.com/sample-tools/goat" }),
     ];
     expect(resolveEnvironmentProjectMatch(target, selected)).toBe(target[1]);
+    expect(isSameRepository(target[1]!, selected)).toBe(true);
   });
 
   it("falls back to workspace basename, then title, for unindexed projects", () => {
@@ -130,6 +132,7 @@ describe("resolveEnvironmentProjectMatch", () => {
       makeProject("srv", "server", { workspaceRoot: "/home/me/t3code" }),
     ];
     expect(resolveEnvironmentProjectMatch(byBasename, selected)).toBe(byBasename[1]);
+    expect(isSameRepository(byBasename[1]!, selected)).toBe(false);
 
     const byTitle = [
       makeProject("other", "server"),
@@ -151,6 +154,7 @@ describe("resolveEnvironmentProjectMatch", () => {
     const unindexed = makeProject("unindexed", "server", { workspaceRoot: "/srv/t3code" });
     expect(resolveEnvironmentProjectMatch([fork, unindexed], selected)).toBe(unindexed);
     expect(resolveEnvironmentProjectMatch([fork], selected)).toBe(fork);
+    expect(isSameRepository(fork, selected)).toBe(false);
   });
 });
 
