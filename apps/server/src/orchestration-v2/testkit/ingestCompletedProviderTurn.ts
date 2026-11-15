@@ -11,6 +11,7 @@ import {
   threadCreatedEvent,
 } from "../ProviderEventIngestor.fixtures.ts";
 
+// @effect-diagnostics-next-line effectFnOpportunity:off - Preserve the extracted test helper.
 export const ingestCompletedProviderTurn = (
   guard: Pick<
     Parameters<ProviderEventIngestor.ProviderEventIngestorV2Shape["ingestNormalized"]>[0],

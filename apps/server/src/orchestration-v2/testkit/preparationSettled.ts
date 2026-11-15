@@ -4,6 +4,7 @@ import * as Stream from "effect/Stream";
 import * as ThreadManagement from "../ThreadManagementService.ts";
 
 /** Settles once preparation releases the run, or fails it. */
+// @effect-diagnostics-next-line effectFnOpportunity:off - Preserve the extracted test helper.
 export const preparationSettled = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const threads = yield* ThreadManagement.ThreadManagementService;
