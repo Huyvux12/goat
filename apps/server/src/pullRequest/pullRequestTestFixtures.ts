@@ -26,6 +26,8 @@ import {
   SourceControlProviderKind,
   type OrchestrationProjectShell,
   type ProjectId,
+  type PullRequestReviewCapabilities,
+  type PullRequestReviewerCapabilities,
 } from "@goat/contracts";
 import type { ProviderChangeRequest } from "@goat/source-control-core/server/PullRequestProvider";
 
@@ -238,3 +240,65 @@ export function makeService(input: {
     (context) => Effect.provideContext(PullRequestService.make, context),
   );
 }
+
+export const FULL_REVIEW: PullRequestReviewCapabilities = {
+  inlineComment: true,
+  reply: true,
+  resolve: true,
+  verdicts: ["comment", "approve", "request-changes"],
+};
+export const FULL_REVIEWERS: PullRequestReviewerCapabilities = {
+  request: true,
+  listCandidates: true,
+};
+
+export const environmentViewedProvider = (
+  revisions: Map<string, string>,
+  asked: Array<ReadonlyArray<string>>,
+  unreadable: ReadonlySet<string> = new Set(),
+) =>
+  fakePullRequestProvider(SourceControlProviderKind.make("gitlab"), {
+    capabilities: {
+      diff: true,
+      comment: true,
+      actions: ["merge"],
+      mergeMethods: ["merge"],
+      search: true,
+      reactions: true,
+      viewedFiles: "environment",
+      review: FULL_REVIEW,
+      reviewers: FULL_REVIEWERS,
+    },
+    getFilesViewed: () => Effect.die("the host keeps no marks of its own"),
+    setFilesViewed: () => Effect.die("the host keeps no marks of its own"),
+    getChangeRequest: () => Effect.succeed(hostedChangeRequest("")),
+    getChangeRequestSummary: () => Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z")),
+    getFileRevisions: (input) => {
+      asked.push(input.paths);
+      return Effect.succeed({
+        revisions: new Map(
+          input.paths.flatMap((path) =>
+            unreadable.has(path) ? [] : [[path, revisions.get(path) ?? ""] as const],
+          ),
+        ),
+      });
+    },
+  });
+
+export const environmentViewedService = (
+  revisions: Map<string, string>,
+  asked: Array<ReadonlyArray<string>>,
+  unreadable: ReadonlySet<string> = new Set(),
+) =>
+  makeService({
+    projects: [
+      project({
+        id: "p1",
+        title: "on gitlab",
+        workspaceRoot: "/a",
+        repository: "group/project",
+        provider: SourceControlProviderKind.make("gitlab"),
+      }),
+    ],
+    providers: [environmentViewedProvider(revisions, asked, unreadable)],
+  });

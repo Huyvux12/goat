@@ -12,6 +12,10 @@ import {
   cloudResult,
   cloudProject,
   makeService,
+  FULL_REVIEW,
+  FULL_REVIEWERS,
+  environmentViewedProvider,
+  environmentViewedService,
 } from "./pullRequestTestFixtures.ts";
 import * as Clock from "effect/Clock";
 import { SourceControlProviderKind } from "@goat/contracts";
@@ -24,12 +28,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import type {
-  OrchestrationProjectShell,
-  PullRequestReviewCapabilities,
-  PullRequestReviewerCapabilities,
-  ProjectId,
-} from "@goat/contracts";
+import type { OrchestrationProjectShell, ProjectId } from "@goat/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@goat/contracts/settings";
 import { PullRequestOperationError } from "@goat/contracts";
 
@@ -39,14 +38,6 @@ import {
   PullRequestProviderError,
   type PullRequestProviderApi,
 } from "@goat/source-control-core/server/PullRequestProvider";
-
-const FULL_REVIEW: PullRequestReviewCapabilities = {
-  inlineComment: true,
-  reply: true,
-  resolve: true,
-  verdicts: ["comment", "approve", "request-changes"],
-};
-const FULL_REVIEWERS: PullRequestReviewerCapabilities = { request: true, listCandidates: true };
 
 it.effect("reads maintainer edits and changes them through the update command", () =>
   Effect.gen(function* () {
@@ -3974,57 +3965,6 @@ it.effect("partial host viewed writes invalidate marks but keep the diff cached"
     ]);
   }),
 );
-
-const environmentViewedProvider = (
-  revisions: Map<string, string>,
-  asked: Array<ReadonlyArray<string>>,
-  unreadable: ReadonlySet<string> = new Set(),
-) =>
-  fakePullRequestProvider(SourceControlProviderKind.make("gitlab"), {
-    capabilities: {
-      diff: true,
-      comment: true,
-      actions: ["merge"],
-      mergeMethods: ["merge"],
-      search: true,
-      reactions: true,
-      viewedFiles: "environment",
-      review: FULL_REVIEW,
-      reviewers: FULL_REVIEWERS,
-    },
-    getFilesViewed: () => Effect.die("the host keeps no marks of its own"),
-    setFilesViewed: () => Effect.die("the host keeps no marks of its own"),
-    getChangeRequest: () => Effect.succeed(hostedChangeRequest("")),
-    getChangeRequestSummary: () => Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z")),
-    getFileRevisions: (input) => {
-      asked.push(input.paths);
-      return Effect.succeed({
-        revisions: new Map(
-          input.paths.flatMap((path) =>
-            unreadable.has(path) ? [] : [[path, revisions.get(path) ?? ""] as const],
-          ),
-        ),
-      });
-    },
-  });
-
-const environmentViewedService = (
-  revisions: Map<string, string>,
-  asked: Array<ReadonlyArray<string>>,
-  unreadable: ReadonlySet<string> = new Set(),
-) =>
-  makeService({
-    projects: [
-      project({
-        id: "p1",
-        title: "on gitlab",
-        workspaceRoot: "/a",
-        repository: "group/project",
-        provider: SourceControlProviderKind.make("gitlab"),
-      }),
-    ],
-    providers: [environmentViewedProvider(revisions, asked, unreadable)],
-  });
 
 const GITLAB_REFERENCE = {
   projectId: "p1" as ProjectId,
