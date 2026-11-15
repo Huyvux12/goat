@@ -196,7 +196,7 @@ export function startWithMissingWorktree(worktreePath: string, realPaths?: Recor
   const projectionReadCount = harness.projectionReadCount;
   const start = Effect.gen(function* () {
     return yield* (yield* ProviderTurnStart.ProviderTurnStartServiceV2)
-      .start({ threadId, runId })
+      .start({ threadId, runId, willRetry: true })
       .pipe(Effect.exit);
   }).pipe(Effect.provide(layer), Effect.runPromise);
   return {

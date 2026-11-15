@@ -79,6 +79,7 @@ export function makeLocalCommandHarness(input: {
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
+  readonly recoveryReadFailure?: string;
   readonly memory?: {
     readonly policy: () => Effect.Effect<MemorySnapshot.MemorySnapshotPolicy>;
     readonly select: MemorySnapshot.MemorySnapshot["Service"]["forThread"];
@@ -596,14 +597,21 @@ export function makeLocalCommandHarness(input: {
           getThreadRecords,
           getTurnStartContext,
           getRuntimeRecoveryProjection: () =>
-            Effect.as(failReadIfRunning, {
-              ...projection,
-              hasConversation: projection.messages.some(
-                (m) =>
-                  m.role === "user" &&
-                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
-              ),
-            }),
+            input.recoveryReadFailure !== undefined
+              ? Effect.fail(
+                  new ProjectionStore.ProjectionStoreReadError({
+                    threadId,
+                    cause: input.recoveryReadFailure,
+                  }),
+                )
+              : Effect.as(failReadIfRunning, {
+                  ...projection,
+                  hasConversation: projection.messages.some(
+                    (m) =>
+                      m.role === "user" &&
+                      (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+                  ),
+                }),
           getTurnStartHistory: () =>
             Effect.fail(
               new ProjectionStore.ProjectionStoreReadError({
