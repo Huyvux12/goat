@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
@@ -19,6 +20,8 @@ import { makeTurnInput } from "../../../../apps/server/src/orchestration-v2/Adap
 import { AcpRegistrySettings } from "../settings.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import { makeAcpRegistryAdapterV2 } from "./adapter.ts";
+import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
+import { acpRegistryEnvironmentKey } from "./sessionEnvironmentKey.ts";
 import {
   decodeAcpRegistrySettings,
   layerResolver,
@@ -285,3 +288,82 @@ it.effect("combines the session environment with registry distribution overrides
     ),
   );
 });
+
+it.live("a session's reported configuration names the environment it runs with", () =>
+  Effect.gen(function* () {
+    const host: NodeJS.ProcessEnv = { PATH: "/old", HOME: "/profile/a" };
+    const catalog = yield* AcpRegistrySupport.makeAcpRegistryCatalog({
+      cacheDir: process.cwd(),
+      toolsDir: process.cwd(),
+    });
+    const instanceId = ProviderInstanceId.make("registry-configuration-origin");
+    const adapter = yield* makeAcpRegistryAdapterV2({
+      instanceId,
+      settings: yield* decodeSettings({ source: "local", commandPath: "fake" }),
+      environment: host,
+      currentEnvironment: Effect.sync(() => host),
+      selfInvocation: yield* resolveSelfInvocation(),
+    }).pipe(
+      Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
+        ...catalog,
+        resolve: (_settings, cwd, env) =>
+          Effect.succeed({
+            distribution: "local" as const,
+            spawn: {
+              command: process.execPath,
+              args: [
+                new URL("../../../../apps/server/scripts/acp-mock-agent.ts", import.meta.url)
+                  .pathname,
+              ],
+              cwd,
+              env: { ...env },
+              shell: false,
+            },
+          }),
+      }),
+    );
+    const coordinator = yield* AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator;
+    const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: process.cwd(),
+    });
+    const modelSelection = { instanceId, model: "default" } as const;
+    const reportedUnder = (id: string) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make(id);
+        const environment = { ...host };
+        const session = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make(id),
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
+        const reported = yield* coordinator.getLiveConfiguration(instanceId);
+        assert.isTrue(Option.isSome(reported));
+        return { reported: Option.getOrThrow(reported).environmentKey, environment };
+      });
+    const first = yield* reportedUnder("profile-a");
+    assert.strictEqual(first.reported, acpRegistryEnvironmentKey(first.environment));
+    host.HOME = "/profile/b";
+    const second = yield* reportedUnder("profile-b");
+    assert.strictEqual(second.reported, acpRegistryEnvironmentKey(second.environment));
+    assert.notStrictEqual(second.reported, first.reported);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        IdAllocator.layer,
+        McpProviderSessions.layer,
+        AcpRegistryRuntimeCoordinator.layer,
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.die("unexpected request")),
+        ),
+        TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
+      ),
+    ),
+    Effect.scoped,
+  ),
+);

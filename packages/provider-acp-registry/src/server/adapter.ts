@@ -43,6 +43,12 @@ import {
   normalizeAcpRegistryWebUrl,
 } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
+import {
+  acpRegistryEnvironmentKey,
+  acpRegistrySessionEnvironment,
+  configurationOrigin,
+  withConfigurationOrigin,
+} from "./sessionEnvironmentKey.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "@goat/provider-acp/server/AcpSessionRuntime";
 import { makeAcpNativeLoggerFactory } from "@goat/provider-acp/server/nativeLogging";
@@ -163,9 +169,18 @@ function makeAcpRegistryRuntime(options: AcpRegistryAdapterV2Options) {
           ),
         }),
       );
-      return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
+      const runtime = yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
         Effect.provide(context),
       );
+      if (sessionEnvironment === undefined) return runtime;
+      // The configuration this session reports names the environment it runs with.
+      const environmentKey = acpRegistryEnvironmentKey(sessionEnvironment);
+      return {
+        ...runtime,
+        getConfigOptions: runtime.getConfigOptions.pipe(
+          Effect.map((configOptions) => withConfigurationOrigin(configOptions, environmentKey)),
+        ),
+      };
     });
 }
 
@@ -206,12 +221,7 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
         options.settings.commandPath.split(/[\\/]/).pop() ?? "",
       ));
   const withClaudeEnvironment = (environment: NodeJS.ProcessEnv) =>
-    isClaude
-      ? {
-          ...environment,
-          CLAUDE_AGENT_ACP_EXPERIMENTAL_V2: environment.CLAUDE_AGENT_ACP_EXPERIMENTAL_V2 ?? "1",
-        }
-      : environment;
+    acpRegistrySessionEnvironment(options.settings, environment);
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
@@ -319,11 +329,13 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
                   ),
               }
             : {}),
-          onSessionConfigurationUpdate: (configOptions, modeState, modelState) =>
-            runtimeCoordinator.publishLiveConfiguration(
-              options.instanceId,
-              normalizeAcpRegistryLiveConfiguration(configOptions, modeState, modelState),
-            ),
+          onSessionConfigurationUpdate: (configOptions, modeState, modelState) => {
+            const environmentKey = configurationOrigin(configOptions);
+            return runtimeCoordinator.publishLiveConfiguration(options.instanceId, {
+              ...normalizeAcpRegistryLiveConfiguration(configOptions, modeState, modelState),
+              ...(environmentKey === undefined ? {} : { environmentKey }),
+            });
+          },
           onUrlElicitation: ({ elicitationId, url, message }) => {
             const normalizedUrl = normalizeAcpRegistryWebUrl(url);
             if (normalizedUrl === undefined || elicitationId.trim().length === 0) {

@@ -57,6 +57,10 @@ import {
 } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import { probeFingerprint } from "./probeFingerprint.ts";
+import {
+  acpRegistryEnvironmentKey,
+  acpRegistrySessionEnvironment,
+} from "./sessionEnvironmentKey.ts";
 import { acpRegistrySnapshotReadiness } from "./snapshotReadiness.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
@@ -523,27 +527,48 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         processEnvironment,
         currentEnvironment,
       });
-    // Refreshes rebuild the snapshot from the probe, so per-model options
-    // learned from earlier sessions are kept here.
-    const learnedModels = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
+    // Refreshes rebuild the snapshot from the probe, so per-model options learned from earlier
+    // sessions are kept here: one entry, for the environment checks currently use. A session's
+    // configuration counts only for the environment it ran with.
+    const noLearnedModels = {
+      environmentKey: "",
+      models: [] as ReadonlyArray<ServerProviderModel>,
+    };
+    const learnedModels = yield* Ref.make(noLearnedModels);
     const applyLiveConfiguration = (
       provider: ServerProvider,
       configuration: AcpRegistryLiveConfiguration,
-    ) =>
-      Ref.modify(learnedModels, (learned) => {
+      environment: NodeJS.ProcessEnv,
+    ) => {
+      const environmentKey = acpRegistryEnvironmentKey(
+        acpRegistrySessionEnvironment(effectiveConfig, environment),
+      );
+      if (
+        configuration.environmentKey !== undefined &&
+        configuration.environmentKey !== environmentKey
+      ) {
+        return Effect.succeed(provider);
+      }
+      return Ref.modify(learnedModels, (learned) => {
+        const models = learned.environmentKey === environmentKey ? learned.models : [];
         const next = applyAcpRegistryLiveConfiguration(
           provider,
           configuration,
           effectiveConfig.customModels,
-          learned.length > 0 ? learned : provider.models,
+          models.length > 0 ? models : provider.models,
         );
-        return [next, next.models === provider.models ? learned : next.models];
+        return [
+          next,
+          { environmentKey, models: next.models === provider.models ? models : next.models },
+        ];
       });
-    const clearLearnedModels = Ref.set(learnedModels, []);
+    };
+    const clearLearnedModels = Ref.set(learnedModels, noLearnedModels);
     const withLiveRuntimeState = Effect.fn("AcpRegistryDriver.withLiveRuntimeState")(function* (
       input: ServerProvider,
       environment?: NodeJS.ProcessEnv,
     ) {
+      const liveEnvironment = environment ?? (yield* currentEnvironment);
       if (input.auth.status === "unauthenticated")
         yield* confirmedAuthentication.set(false, environment);
       const provider =
@@ -565,7 +590,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
               return Option.match(configuration, {
                 onNone: () => Effect.succeed(withCommands),
                 onSome: (liveConfiguration) =>
-                  applyLiveConfiguration(withCommands, liveConfiguration),
+                  applyLiveConfiguration(withCommands, liveConfiguration, liveEnvironment),
               }).pipe(
                 Effect.map((withConfiguration) =>
                   applyAcpRegistryUrlAuthAction(withConfiguration, authAction),
@@ -726,7 +751,13 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           (configuration) =>
             liveSnapshotSemaphore.withPermit(
               getSnapshot.pipe(
-                Effect.flatMap((current) => applyLiveConfiguration(current, configuration)),
+                Effect.flatMap((current) =>
+                  currentEnvironment.pipe(
+                    Effect.flatMap((environment) =>
+                      applyLiveConfiguration(current, configuration, environment),
+                    ),
+                  ),
+                ),
                 Effect.flatMap(publishSnapshot),
               ),
             ),
