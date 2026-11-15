@@ -255,12 +255,38 @@ describe("CursorTextGeneration", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
+  it.effect("a text generation request reads its environment once", () =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const environment = { CURSOR_API_KEY: "key" };
+      const generation = yield* makeCursorTextGeneration(
+        cursorSettings,
+        environment,
+        undefined,
+        undefined,
+        undefined,
+        Effect.sync(() => {
+          reads++;
+          return environment;
+        }),
+      );
+      const before = reads;
+      yield* generation.generateCommitMessage({
+        cwd: process.cwd(),
+        branch: "test",
+        stagedSummary: "M file",
+        stagedPatch: "diff",
+        modelSelection: createModelSelection(ProviderInstanceId.make("cursor"), "auto"),
+      });
+      // One capture gives the request its key and both backend and transport guards.
+      expect(reads - before).toBe(1);
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it.effect("resolves the browser credential for every request after an account change", () =>
     Effect.gen(function* () {
       let apiKey = "first-browser-key";
-      const generation = yield* makeCursorTextGeneration(
-        cursorSettings,
-        {},
+      const generation = yield* makeCursorTextGeneration(cursorSettings, {}, () =>
         Effect.sync(() => apiKey),
       );
       const input = {

@@ -297,7 +297,7 @@ const make = Effect.gen(function* () {
           ? Effect.undefined
           : environment.CURSOR_API_KEY?.trim()
             ? Effect.succeed(environment.CURSOR_API_KEY.trim())
-            : readStoredCursorApiKey(instanceId).pipe(
+            : readStoredCursorApiKey(instanceId, environment.CURSOR_BACKEND_URL).pipe(
                 Effect.provideService(ProviderHost.ProviderHost, host),
                 Effect.orElseSucceed(() => undefined),
               ),

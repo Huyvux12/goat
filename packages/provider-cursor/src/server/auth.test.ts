@@ -123,14 +123,14 @@ it.layer(NodeServices.layer)("CursorAuth", (it) => {
       const resume = yield* Deferred.make<void>();
       let opened = false;
       const open = yield* Effect.gen(function* () {
-        yield* harness.auth.validateSessionApiKey("browser-key", undefined);
+        yield* harness.auth.validateSessionApiKey("browser-key", undefined, undefined);
         yield* Deferred.succeed(validated, undefined);
         yield* Deferred.await(resume);
         return yield* harness.auth.withAccess(
           Effect.sync(() => {
             opened = true;
           }),
-          harness.auth.validateSessionApiKey("browser-key", undefined),
+          harness.auth.validateSessionApiKey("browser-key", undefined, undefined),
         );
       }).pipe(Effect.exit, Effect.forkScoped);
       yield* Deferred.await(validated);
@@ -411,6 +411,19 @@ it.layer(NodeServices.layer)("CursorAuth", (it) => {
       );
       expect(yield* harness.auth.readApiKey).toBeUndefined();
       expect(Exit.isFailure(yield* Effect.exit(harness.auth.controller.start(owner)))).toBe(true);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a stored sign-in counts only for the backend it was made against", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      yield* Effect.promise(() =>
+        harness.store.save({ ...harness.credentials, backendUrl: "https://private.invalid" }),
+      );
+      expect(yield* harness.auth.readApiKeyFor(undefined, undefined)).toBeUndefined();
+      expect(yield* harness.auth.readApiKeyFor(undefined, "https://private.invalid/")).toBe(
+        "browser-key",
+      );
     }).pipe(Effect.scoped),
   );
 });

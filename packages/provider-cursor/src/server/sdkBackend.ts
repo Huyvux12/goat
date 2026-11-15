@@ -1,7 +1,8 @@
 const PRODUCTION_BACKEND = "https://api2.cursor.sh";
 let initializedBackend: string | undefined;
 
-const normalizeSdkBackend = (backend: string | undefined) =>
+/** A Cursor backend URL as GOAT compares it: the production backend when unset, no trailing slash. */
+export const normalizeSdkBackend = (backend: string | undefined) =>
   (backend || PRODUCTION_BACKEND).replace(/\/+$/, "");
 
 export const currentSdkBackend = () => normalizeSdkBackend(process.env.CURSOR_BACKEND_URL);

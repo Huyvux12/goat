@@ -281,7 +281,7 @@ export const CursorDriver: ProviderDriver<
     const textGeneration = yield* makeCursorTextGeneration(
       effectiveConfig,
       processEnv,
-      auth.requireApiKey,
+      auth.requireApiKeyFor,
       auth.withAccess,
       {
         providerInstanceId: instanceId,
@@ -296,7 +296,7 @@ export const CursorDriver: ProviderDriver<
       // With no instance variables the merge is the live host object, so copy it once.
       Effect.map((environment) => ({ ...environment })),
       Effect.flatMap((processEnv) =>
-        auth.readApiKeyFor(processEnv.CURSOR_API_KEY).pipe(
+        auth.readApiKeyFor(processEnv.CURSOR_API_KEY, processEnv.CURSOR_BACKEND_URL).pipe(
           Effect.orElseSucceed(() => undefined),
           Effect.flatMap((apiKey) =>
             checkCursorProviderStatus(

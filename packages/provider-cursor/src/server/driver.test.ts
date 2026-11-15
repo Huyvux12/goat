@@ -941,14 +941,17 @@ it.layer(layerTest)("CursorDriver", (it) => {
           },
         },
       );
+      const catalogRequested = yield* Deferred.make<void>();
       const client = HttpClient.make((request) =>
-        Effect.succeed(
-          request.url.endsWith("/v1/me")
-            ? HttpClientResponse.fromWeb(
-                request,
-                Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
-              )
-            : HttpClientResponse.fromWeb(request, Response.json({ items: [] })),
+        Deferred.succeed(catalogRequested, undefined).pipe(
+          Effect.as(
+            request.url.endsWith("/v1/me")
+              ? HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ apiKeyName: "T3 Code", createdAt: "2026-01-01T00:00:00.000Z" }),
+                )
+              : HttpClientResponse.fromWeb(request, Response.json({ items: [] })),
+          ),
         ),
       );
       const instance = yield* CursorDriver.create({
@@ -961,8 +964,9 @@ it.layer(layerTest)("CursorDriver", (it) => {
         Effect.provideService(HostProcess.Environment, host),
         Effect.provideService(HttpClient.HttpClient, client),
       );
-      // The second refresh queues behind the creation-time check, so nothing else is running.
-      yield* instance.snapshot.refresh;
+      // The initial snapshot sends nothing, so the first request is the creation-time check's, made
+      // while it holds the refresh permit; a refresh started now runs after it.
+      yield* Deferred.await(catalogRequested);
       yield* instance.snapshot.refresh;
       const before = enumerations;
       yield* instance.snapshot.refresh;

@@ -61,7 +61,7 @@ function cursorSandboxUnsupported(cause: unknown): boolean {
 export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(function* (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
-  resolveApiKey?: Effect.Effect<string, ProviderSetupError>,
+  resolveApiKey?: (environment: NodeJS.ProcessEnv) => Effect.Effect<string, ProviderSetupError>,
   withAccess?: CursorAuth["withAccess"],
   memoryRunnerContext?: MemoryGenerationRunnerContext,
   currentEnvironment: Effect.Effect<NodeJS.ProcessEnv> = Effect.succeed(environment ?? process.env),
@@ -72,6 +72,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
 
   const resolveCursorApiKey = Effect.fn("CursorTextGeneration.resolveCursorApiKey")(function* (
     operation: TextGenerationOperations.Operation,
+    requestEnvironment: NodeJS.ProcessEnv,
   ) {
     if (!cursorSettings.enabled) {
       return yield* new TextGenerationError({
@@ -81,8 +82,8 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     }
 
     const apiKey = resolveApiKey
-      ? yield* resolveApiKey
-      : (yield* currentEnvironment).CURSOR_API_KEY?.trim();
+      ? yield* resolveApiKey(requestEnvironment)
+      : requestEnvironment.CURSOR_API_KEY?.trim();
     if (!apiKey) {
       return yield* new TextGenerationError({
         operation,
@@ -98,8 +99,10 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     function* <S extends Schema.Top>(input: TextGenerationOperations.Request<S>) {
       const { operation, prompt, modelSelection } = input;
       const isMemory = TextGenerationOperations.isMemoryOperation(operation);
-      const apiKey = yield* resolveCursorApiKey(operation);
-      if (!sdkBackendMatches((yield* currentEnvironment).CURSOR_BACKEND_URL)) {
+      // One capture gives the request its key and every backend and transport check.
+      const requestEnvironment = { ...(yield* currentEnvironment) };
+      const apiKey = yield* resolveCursorApiKey(operation, requestEnvironment);
+      if (!sdkBackendMatches(requestEnvironment.CURSOR_BACKEND_URL)) {
         return yield* new TextGenerationError({
           operation,
           detail:
@@ -109,7 +112,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       const transportRefusal =
         sdk.agentTransportRefusal === undefined
           ? undefined
-          : yield* sdk.agentTransportRefusal(yield* currentEnvironment);
+          : yield* sdk.agentTransportRefusal(requestEnvironment);
       if (transportRefusal !== undefined) {
         return yield* new TextGenerationError({ operation, detail: transportRefusal });
       }
@@ -154,7 +157,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       const createCursorAgent = Effect.fn("CursorTextGeneration.createAgent")(function* (
         sandboxEnabled: boolean,
       ) {
-        if (!sdkBackendMatches((yield* currentEnvironment).CURSOR_BACKEND_URL)) {
+        if (!sdkBackendMatches(requestEnvironment.CURSOR_BACKEND_URL)) {
           return yield* new TextGenerationError({
             operation,
             detail:

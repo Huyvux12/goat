@@ -19,6 +19,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { isCursorSdkError, loadCursorSdk } from "./sdk.ts";
+import { normalizeSdkBackend } from "./sdkBackend.ts";
 import type { ProviderAuthController } from "@goat/provider-core/server/auth";
 
 const AUTH_TIMEOUT_MS = 300_000;
@@ -46,17 +47,26 @@ interface AuthFlow {
 export interface CursorAuth {
   readonly controller: ProviderAuthController;
   readonly readApiKey: Effect.Effect<string | undefined, ProviderSetupError>;
-  /** The key a check uses when its environment holds `environmentKey`, else the stored sign-in. */
+  /**
+   * The key for an environment holding `environmentKey` and `backendUrl`: its own key, else a
+   * stored sign-in made against that backend.
+   */
   readonly readApiKeyFor: (
     environmentKey: string | undefined,
+    backendUrl: string | undefined,
   ) => Effect.Effect<string | undefined, ProviderSetupError>;
   readonly requireApiKey: Effect.Effect<string, ProviderSetupError>;
+  readonly requireApiKeyFor: (
+    environment: NodeJS.ProcessEnv,
+  ) => Effect.Effect<string, ProviderSetupError>;
   readonly requireSessionApiKey: (
     key: string | undefined,
+    backendUrl: string | undefined,
   ) => Effect.Effect<string, ProviderSetupError>;
   readonly validateSessionApiKey: (
     key: string | undefined,
     environmentKey: string | undefined,
+    backendUrl: string | undefined,
   ) => Effect.Effect<void, ProviderSetupError>;
   readonly usesApiKey: Effect.Effect<boolean>;
   readonly withAccess: <A, E, R, E2 = never>(
@@ -104,7 +114,10 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
       state: { ...current.state, ...patch },
     }));
 
-  const readKey = Effect.fn("CursorAuth.readKey")(function* (environmentKey: string | undefined) {
+  const readKey = Effect.fn("CursorAuth.readKey")(function* (
+    environmentKey: string | undefined,
+    backendUrl: string | undefined,
+  ) {
     if (environmentKey) return environmentKey;
     const credentials = yield* Effect.tryPromise({
       try: () => options.store.load(),
@@ -117,7 +130,9 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
         }),
     });
     const now = yield* Clock.currentTimeMillis;
+    // A sign-in's key belongs to the backend it was made against.
     return credentials &&
+      normalizeSdkBackend(credentials.backendUrl) === normalizeSdkBackend(backendUrl) &&
       (credentials.apiKeyExpiresAtMs === undefined || credentials.apiKeyExpiresAtMs > now)
       ? credentials.apiKey
       : undefined;
@@ -125,10 +140,13 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
   const usesApiKey = (options.currentApiKey ?? Effect.succeed(configuredKey)).pipe(
     Effect.map((key) => Boolean(key?.trim())),
   );
-  const readApiKeyFor = (environmentKey: string | undefined) =>
-    readKey(environmentKey?.trim() || undefined);
+  const readApiKeyFor = (environmentKey: string | undefined, backendUrl: string | undefined) =>
+    readKey(environmentKey?.trim() || undefined, backendUrl);
   const readApiKey = Effect.suspend(() =>
-    (options.currentApiKey ?? Effect.succeed(configuredKey)).pipe(Effect.flatMap(readApiKeyFor)),
+    Effect.all([
+      options.currentApiKey ?? Effect.succeed(configuredKey),
+      options.currentBackend ?? Effect.undefined,
+    ]).pipe(Effect.flatMap(([key, backendUrl]) => readApiKeyFor(key, backendUrl))),
   );
 
   const requireKey = Effect.fn("CursorAuth.requireKey")(function* (
@@ -152,12 +170,16 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
     return apiKey;
   });
   const requireApiKey = requireKey(readApiKey);
-  const requireSessionApiKey = (key: string | undefined) => requireKey(readKey(key));
+  const requireApiKeyFor = (environment: NodeJS.ProcessEnv) =>
+    requireKey(readApiKeyFor(environment.CURSOR_API_KEY, environment.CURSOR_BACKEND_URL));
+  const requireSessionApiKey = (key: string | undefined, backendUrl: string | undefined) =>
+    requireKey(readKey(key, backendUrl));
   const validateSessionApiKey = Effect.fn("CursorAuth.validateSessionApiKey")(function* (
     key: string | undefined,
     environmentKey: string | undefined,
+    backendUrl: string | undefined,
   ) {
-    if (environmentKey || (yield* readKey(undefined)) === key) return;
+    if (environmentKey || (yield* readKey(undefined, backendUrl)) === key) return;
     return yield* new ProviderSetupError({
       instanceId: options.instanceId,
       operation: "session",
@@ -593,6 +615,7 @@ export const makeCursorAuth = Effect.fn("makeCursorAuth")(function* (options: Cu
     readApiKey,
     readApiKeyFor,
     requireApiKey,
+    requireApiKeyFor,
     requireSessionApiKey,
     validateSessionApiKey,
     withAccess,

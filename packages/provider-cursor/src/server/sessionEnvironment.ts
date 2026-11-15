@@ -11,10 +11,12 @@ export type Source = NodeJS.ProcessEnv | Effect.Effect<NodeJS.ProcessEnv>;
 export interface SessionAuth {
   readonly resolveSessionApiKey?: (
     key: string | undefined,
+    backendUrl: string | undefined,
   ) => Effect.Effect<string, ProviderSetupError>;
   readonly validateSessionApiKey?: (
     key: string | undefined,
     environmentKey: string | undefined,
+    backendUrl: string | undefined,
   ) => Effect.Effect<void, ProviderSetupError>;
   readonly agentTransportRefusal?:
     | ((environment: NodeJS.ProcessEnv) => Effect.Effect<string | undefined>)
@@ -39,14 +41,18 @@ export const forSession = (source: Source, auth: SessionAuth = {}) =>
       const copy = { ...environment };
       const environmentKey = copy.CURSOR_API_KEY?.trim() || undefined;
       const key: Effect.Effect<string | undefined, ProviderSetupError> =
-        auth.resolveSessionApiKey?.(environmentKey) ?? Effect.succeed(environmentKey);
+        auth.resolveSessionApiKey?.(environmentKey, copy.CURSOR_BACKEND_URL) ??
+        Effect.succeed(environmentKey);
       // Decided once: the SDK's transport cannot change, so a running session never re-reads it.
       const transport = auth.agentTransportRefusal?.(copy) ?? Effect.undefined;
       return Effect.all([key, transport]).pipe(
         Effect.map(([apiKey, transportRefusal]) => ({
           environment: copy,
           apiKey,
-          validate: (auth.validateSessionApiKey?.(apiKey, environmentKey) ?? Effect.void).pipe(
+          validate: (
+            auth.validateSessionApiKey?.(apiKey, environmentKey, copy.CURSOR_BACKEND_URL) ??
+            Effect.void
+          ).pipe(
             Effect.mapError((cause) => new CursorAgentSdkRunnerError({ method: "open", cause })),
             Effect.andThen(
               Effect.suspend(() =>

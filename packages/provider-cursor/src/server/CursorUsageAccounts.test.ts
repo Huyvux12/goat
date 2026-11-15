@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@goat/contracts";
 import * as TestProviderHost from "@goat/provider-testing/TestProviderHost";
+import * as ProviderHost from "@goat/provider-core/server/ProviderHost";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -98,6 +99,53 @@ describe("CursorUsageAccounts", () => {
         awaitRefresh: true,
       });
       assert.deepStrictEqual(read, [{ kind: "apiKey", apiKey: "public-key" }]);
+    }).pipe(
+      Effect.provide(
+        Layer.provideMerge(
+          CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+          Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+        ),
+      ),
+    );
+  });
+
+  it.effect("does not read usage with a stored sign-in made against another backend", () => {
+    const read: Array<unknown> = [];
+    const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+      read: (credentialSource) =>
+        Effect.sync(() => {
+          read.push(credentialSource);
+          return { accountKey: null, records: [], missing: true, error: null };
+        }),
+    });
+    return Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("cursor-stored-private");
+      const credentials = yield* (yield* ProviderHost.ProviderHost).credentials(
+        "cursor",
+        instanceId,
+      );
+      yield* credentials.set(
+        new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            backendUrl: "https://private.invalid",
+            apiKey: "stored-private-key",
+            createdAtMs: 0,
+          }),
+        ),
+      );
+      const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+      yield* accounts.scan({
+        instances: [{ instanceId, environment: {} }],
+        keychainUsageEnabled: false,
+        windowStartMs: 0,
+        retentionCutoffMs: 0,
+        awaitRefresh: true,
+      });
+      assert.deepStrictEqual(
+        read.filter((source) => typeof source !== "string"),
+        [],
+      );
     }).pipe(
       Effect.provide(
         Layer.provideMerge(
