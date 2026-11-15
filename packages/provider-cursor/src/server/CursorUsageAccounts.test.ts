@@ -63,4 +63,48 @@ describe("CursorUsageAccounts", () => {
       ),
     );
   });
+
+  it.effect("does not read usage with a key issued by another Cursor backend", () => {
+    const read: Array<unknown> = [];
+    const reader = Layer.succeed(CursorAccountReader.CursorAccountReader, {
+      read: (credentialSource) =>
+        Effect.sync(() => {
+          read.push(credentialSource);
+          return { accountKey: null, records: [], missing: false, error: null };
+        }),
+    });
+    return Effect.gen(function* () {
+      const accounts = yield* CursorUsageAccounts.CursorUsageAccounts;
+      yield* accounts.scan({
+        instances: [
+          {
+            instanceId: ProviderInstanceId.make("cursor-private"),
+            environment: {
+              CURSOR_API_KEY: "private-key",
+              CURSOR_BACKEND_URL: "https://private.invalid",
+            },
+          },
+          {
+            instanceId: ProviderInstanceId.make("cursor-public"),
+            environment: {
+              CURSOR_API_KEY: "public-key",
+              CURSOR_BACKEND_URL: "https://api2.cursor.sh/",
+            },
+          },
+        ],
+        keychainUsageEnabled: false,
+        windowStartMs: 0,
+        retentionCutoffMs: 0,
+        awaitRefresh: true,
+      });
+      assert.deepStrictEqual(read, [{ kind: "apiKey", apiKey: "public-key" }]);
+    }).pipe(
+      Effect.provide(
+        Layer.provideMerge(
+          CursorUsageAccounts.layer.pipe(Layer.provide(reader)),
+          Layer.provideMerge(TestProviderHost.layer(), NodeServices.layer),
+        ),
+      ),
+    );
+  });
 });

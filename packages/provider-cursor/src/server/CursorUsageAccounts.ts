@@ -29,6 +29,7 @@ import {
 } from "./accountCache.ts";
 import * as CursorAccountReader from "./CursorAccountReader.ts";
 import { readStoredCursorApiKey } from "./credentialStore.ts";
+import { exchangesAtCursor } from "./apiKey.ts";
 
 const CURSOR_ACCOUNT_READ_ERROR = "Cursor account usage could not be read.";
 
@@ -290,13 +291,16 @@ const make = Effect.gen(function* () {
           ? path.join(userHome, ".cursor", "auth.json")
           : path.join(cursorHome, platform === "win32" ? "Cursor" : "cursor", "auth.json");
       // GOAT's Cursor sign-in and CURSOR_API_KEY name the account the agent uses, so they win.
+      // A key issued by another backend is never sent to Cursor's exchange.
       const apiKeys = yield* Effect.forEach(instances, ({ instanceId, environment }) =>
-        environment.CURSOR_API_KEY?.trim()
-          ? Effect.succeed(environment.CURSOR_API_KEY.trim())
-          : readStoredCursorApiKey(instanceId).pipe(
-              Effect.provideService(ProviderHost.ProviderHost, host),
-              Effect.orElseSucceed(() => undefined),
-            ),
+        !exchangesAtCursor(environment.CURSOR_BACKEND_URL)
+          ? Effect.undefined
+          : environment.CURSOR_API_KEY?.trim()
+            ? Effect.succeed(environment.CURSOR_API_KEY.trim())
+            : readStoredCursorApiKey(instanceId).pipe(
+                Effect.provideService(ProviderHost.ProviderHost, host),
+                Effect.orElseSucceed(() => undefined),
+              ),
       );
       const uniqueApiKeys = [...new Set(apiKeys.filter((apiKey) => apiKey !== undefined))];
       if (uniqueApiKeys.length > 0) {

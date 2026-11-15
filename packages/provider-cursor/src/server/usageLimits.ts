@@ -16,7 +16,7 @@ import {
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "@goat/provider-core/server/usageLimits";
-import { DEFAULT_CURSOR_API_ENDPOINT, exchangeCursorApiKey } from "./apiKey.ts";
+import { DEFAULT_CURSOR_API_ENDPOINT, exchangeCursorApiKey, exchangesAtCursor } from "./apiKey.ts";
 import * as CursorKeychain from "./CursorKeychain.ts";
 
 const CursorCredentials = Schema.Struct({ accessToken: Schema.optional(Schema.String) });
@@ -95,13 +95,7 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
           message: "Cursor usage for an API key requires the default Cursor endpoint.",
         });
       }
-      // The exchange is Cursor's own service; a key issued by another backend stays with it.
-      if (
-        (environment.CURSOR_BACKEND_URL?.trim() || DEFAULT_CURSOR_API_ENDPOINT).replace(
-          /\/+$/,
-          "",
-        ) !== DEFAULT_CURSOR_API_ENDPOINT
-      ) {
+      if (!exchangesAtCursor(environment.CURSOR_BACKEND_URL)) {
         return makeUnavailableUsageLimits({
           checkedAt,
           reason: "unsupported",

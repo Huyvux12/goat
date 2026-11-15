@@ -8,6 +8,11 @@ export const DEFAULT_CURSOR_API_ENDPOINT = "https://api2.cursor.sh";
 
 const ApiKeyExchange = Schema.Struct({ accessToken: Schema.NonEmptyString });
 
+/** The exchange is Cursor's own service, so only a key from Cursor's production backend goes there. */
+export const exchangesAtCursor = (backendUrl: string | undefined) =>
+  (backendUrl?.trim() || DEFAULT_CURSOR_API_ENDPOINT).replace(/\/+$/, "") ===
+  DEFAULT_CURSOR_API_ENDPOINT;
+
 /** Trades a user API key for the access token Cursor's RPCs accept, as `@cursor/sdk` does. */
 export const exchangeCursorApiKey = Effect.fn("exchangeCursorApiKey")(function* (apiKey: string) {
   const client = yield* HttpClient.HttpClient;
