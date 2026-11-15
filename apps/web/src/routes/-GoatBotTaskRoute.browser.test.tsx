@@ -81,6 +81,20 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
     await import("../components/goatBot/goatBotLayout");
   // The app's own sheet: Base UI empties its portal container before removing it.
   const { Sheet, SheetPopup, SheetTitle } = await import("../components/ui/sheet");
+  // A draft, Home's memory wording or an edit in a dialog: the real editors hold while they hold text.
+  function HeldInput({ label }: { label: string }) {
+    const [value, setValue] = useState("");
+    return (
+      <>
+        <input
+          aria-label={label}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        {value === "" ? null : <HoldsNavigation />}
+      </>
+    );
+  }
   return {
     GoatBotChatView: (props: { removal?: string | null; onRestore?: () => void }) => {
       state.chatSession = props;
@@ -100,7 +114,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
         <GoatBotStepsReader rows={[]} paused={hidden}>
           <div>
             <span>Main chat</span>
-            <input aria-label="Message" />
+            <HeldInput label="Message" />
             <button type="button" onClick={() => setModalOpen(true)}>
               Open modal
             </button>
@@ -108,7 +122,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
               <Sheet open={modalOpen} onOpenChange={setModalOpen}>
                 <SheetPopup showCloseButton={false}>
                   <SheetTitle>Chat modal</SheetTitle>
-                  <input aria-label="In modal" />
+                  <HeldInput label="In modal" />
                   <button type="button" onClick={() => setModalOpen(false)}>
                     Close modal
                   </button>
@@ -117,7 +131,7 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
             ) : modalOpen ? (
               createPortal(
                 <div role="dialog" aria-label="Chat modal" data-slot={state.modalSlot} data-open>
-                  <input aria-label="In modal" />
+                  <HeldInput label="In modal" />
                   <button type="button" onClick={() => setModalOpen(false)}>
                     Close modal
                   </button>
@@ -127,10 +141,9 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
             ) : null}
             {homeDocked ? (
               <aside ref={registerHomeDocked} data-goat-bot-home-docked aria-label="Home">
-                <input aria-label="New wording" />
+                <HeldInput label="New wording" />
               </aside>
             ) : null}
-            <HoldsNavigation />
             {/* A chat menu or Home's sheet renders outside the row, as Base UI portals do. */}
             {createPortal(
               <div role="dialog" aria-label="Chat popup">
@@ -155,15 +168,21 @@ vi.mock("../components/goatBot/useBotManage", () => ({
 }));
 vi.mock("../components/goatBot/GoatBotTaskPane", async () => {
   const { createPortal } = await import("react-dom");
+  const { useGoatBotHiddenChatNotice } =
+    await import("../components/goatBot/GoatBotHiddenChatNotice");
   return {
     GoatBotTaskPane: ({ narrow, session }: { narrow: boolean; session: object }) => {
       state.paneSession = session;
+      const hiddenChat = useGoatBotHiddenChatNotice(narrow);
       return (
         <section>
           <h2 tabIndex={-1} data-goat-bot-task-heading>
             Task heading
           </h2>
-          <div>{narrow ? "Back to Tasks" : "Close"}</div>
+          <button type="button" aria-describedby={hiddenChat.describedBy}>
+            {narrow ? "Back to Tasks" : "Close"}
+          </button>
+          {hiddenChat.notice}
           {/* The task pane's own menus portal out of the row too. */}
           {createPortal(
             <div role="menu" aria-label="Task menu">
@@ -292,6 +311,7 @@ it("a chat the task replaces holds no navigation, and holds again once shown", a
   const container = row(1000);
   await using screen = await render(taskRoute, { router: false, container }); // No navigation.
   await expect.element(screen.getByText("Close")).toBeVisible();
+  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "Draft");
   expect(navigationBlocked()).toBe(true);
   container.style.width = "700px";
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
@@ -819,4 +839,49 @@ it("with Home docked at a 20px interface size, the task sits beside only while t
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   container.style.width = "1260px";
   await expect.element(screen.getByText("Close")).toBeVisible();
+});
+
+const UNSAVED_BEHIND = "The chat behind this task has unsaved work. Leaving this task discards it.";
+
+it("with Home docked at 1366, unsaved Home wording behind the task is named next to Back to Tasks and describes it", async () => {
+  state.beside = true;
+  await using _home = await dockHome(true);
+  await using _window = await windowWidth(1366);
+  // 1366 with the sidebar collapsed leaves the row 1310; opening the sidebar leaves 1054.
+  const container = row(1310);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await userEvent.type(screen.getByRole("textbox", { name: "New wording" }), "Reply in English");
+  container.style.width = "1054px";
+  const leave = screen.getByRole("button", { name: "Back to Tasks" });
+  await expect.element(leave).toBeVisible();
+  await expect.element(screen.getByRole("status")).toHaveTextContent(UNSAVED_BEHIND);
+  await expect.element(leave).toHaveAccessibleDescription(UNSAVED_BEHIND);
+  // The chat comes back with the wording: nothing is behind the task any more.
+  container.style.width = "1310px";
+  await expect.element(screen.getByRole("button", { name: "Close" })).toBeVisible();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("");
+  await expect
+    .element(screen.getByRole("textbox", { name: "New wording" }))
+    .toHaveValue("Reply in English");
+});
+
+it("the line goes when the work behind the task is cleared, and never shows when nothing is unsaved", async () => {
+  state.beside = true;
+  state.modalSlot = "dialog-popup";
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  container.style.width = "700px";
+  const leave = screen.getByRole("button", { name: "Back to Tasks" });
+  await expect.element(leave).toBeVisible();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("");
+  await expect.element(leave).not.toHaveAccessibleDescription(UNSAVED_BEHIND);
+  // An edit in a dialog the chat opened (Home's sheet, Edit bot), which stays over the task.
+  container.style.width = "1000px";
+  await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+  await userEvent.type(page.getByRole("textbox", { name: "In modal" }), "Ada");
+  container.style.width = "700px";
+  await expect.element(screen.getByRole("status")).toHaveTextContent(UNSAVED_BEHIND);
+  await userEvent.clear(page.getByRole("textbox", { name: "In modal" }));
+  await expect.element(screen.getByRole("status")).toHaveTextContent("");
 });

@@ -32,6 +32,7 @@ import { useBotThreads } from "./useBotRoster";
 import { useGoatBotSession } from "./useGoatBotSession";
 import { focusTaskHeading, getTaskPaneFocus } from "./taskPaneFocus";
 import { GOAT_BOT_TASK_PANE_WIDTH } from "./goatBotLayout";
+import { useGoatBotHiddenChatNotice } from "./GoatBotHiddenChatNotice";
 import { useBotTaskLookup } from "./useBotTaskLookup";
 import { useAcknowledgeTaskRead } from "./useAcknowledgeTaskRead";
 import type { GoatBotLocalSubmission } from "./useGoatBotFollow";
@@ -59,6 +60,7 @@ export function GoatBotTaskPane({
     edge: "left",
   });
   const taskFocus = getTaskPaneFocus();
+  const hiddenChat = useGoatBotHiddenChatNotice(narrow);
   const headingRef = useStableCallback((element: HTMLHeadingElement | null) =>
     focusTaskHeading(taskFocus, taskId, element),
   );
@@ -171,7 +173,12 @@ export function GoatBotTaskPane({
           narrow && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
       >
-        <Button variant="ghost" size="sm" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          aria-describedby={hiddenChat.describedBy}
+        >
           {narrow ? "Back to Tasks" : "Close"}
         </Button>
         <div
@@ -211,6 +218,7 @@ export function GoatBotTaskPane({
             </p>
           )}
         </div>
+        {hiddenChat.notice}
         {task?.kind === "task" && (
           <>
             {session.supportsTaskRetry && isRetryableTaskStatus(task.task.status) ? (
