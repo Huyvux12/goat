@@ -1,4 +1,5 @@
 import { createContext, useContext, useRef, useState, type FocusEvent } from "react";
+import { flushSync } from "react-dom";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { RESIZABLE_WIDTH_PROPERTY } from "~/hooks/useResizableWidth";
@@ -80,7 +81,8 @@ function rootRemPx(doc: Document): number {
 
 /** Calls back when the root's inline style changes, as a new interface font size does. */
 function observeRootStyle(doc: Document, callback: () => void): () => void {
-  const observer = new MutationObserver(callback);
+  // Flushed like observeResize's reports, so the decision lands in the frame the CSS cap does.
+  const observer = new MutationObserver(() => flushSync(callback));
   observer.observe(doc.documentElement, { attributes: true, attributeFilter: ["style"] });
   return () => observer.disconnect();
 }
@@ -127,6 +129,8 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   const watchModalClose = (chat: HTMLElement | null) => {
     if (chat === null) return;
     const doc = chat.ownerDocument;
+    // A modal that closed while the chat was shown is no longer the chat's to watch.
+    if (chatModal.current?.isConnected === false) chatModal.current = null;
     const observer = new MutationObserver(() => {
       const modal = chatModal.current;
       if (modal === null || modal.isConnected) return;

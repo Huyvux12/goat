@@ -781,6 +781,28 @@ it("a tooltip or popover closing while the task replaces the chat leaves focus w
   expect(document.activeElement).toBe(document.body);
 });
 
+it("a chat modal closed before the task replaced the chat does not move focus on a later tooltip", async () => {
+  state.beside = true;
+  state.modalSlot = "dialog-popup";
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+  await userEvent.click(page.getByRole("textbox", { name: "In modal" }));
+  await userEvent.click(page.getByRole("button", { name: "Close modal" }));
+  await expect.element(page.getByRole("dialog", { name: "Chat modal" })).not.toBeInTheDocument();
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const portal = document.createElement("div");
+  portal.setAttribute("data-base-ui-portal", "");
+  portal.append(Object.assign(document.createElement("div"), { role: "tooltip" }));
+  await act(() => document.body.append(portal));
+  // The removal's MutationObserver callback is a microtask, run before act() settles.
+  await act(() => portal.remove());
+  expect(document.activeElement).toBe(document.body);
+});
+
 it("closing a modal the chat opened while the task replaces the chat sends focus to the task heading", async () => {
   state.beside = true;
   state.modalSlot = "dialog-popup";
