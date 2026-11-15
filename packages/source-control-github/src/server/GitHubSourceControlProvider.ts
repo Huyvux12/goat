@@ -1,5 +1,4 @@
 import { SourceControlProviderKind } from "@goat/contracts";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -69,6 +68,13 @@ import {
   PullRequestNode,
   PullRequestsByHead,
 } from "./sourceControlProvider.graphql.ts";
+import {
+  GitHubFailure,
+  failure,
+  REPOSITORY_NOT_FOUND,
+  fromGitHubApiError,
+  notFound,
+} from "./gitHubProviderFailures.ts";
 
 // Decode rows separately to isolate malformed PRs within shared documents.
 const LenientPullRequestsByHead = GraphQL.query(PullRequestsByHead.name, {
@@ -300,51 +306,6 @@ export const makeDiscovery = Effect.gen(function* () {
     },
   } satisfies SourceControlManagedCliDiscoverySpec;
 });
-
-class GitHubFailure extends Data.TaggedError("GitHubFailure")<{
-  readonly detail: string;
-  readonly cause: unknown;
-}> {}
-
-const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
-
-const PULL_REQUEST_NOT_FOUND = "Pull request not found. Check the PR number or URL and try again.";
-const REPOSITORY_NOT_FOUND = "Repository not found. Check the owner and name and try again.";
-
-function fromGitHubApiError(
-  error: GitHubRequestPolicy.GitHubApiError,
-  notFound = PULL_REQUEST_NOT_FOUND,
-): GitHubFailure {
-  switch (error._tag) {
-    case "GitHubCliMissingError":
-      return failure(
-        "No GitHub credential on the server. Set GH_TOKEN, or install the GitHub CLI and run `gh auth login`.",
-        error,
-      );
-    case "GitHubNotSignedInError":
-    case "GitHubHostDisabledError":
-      return failure(error.message, error);
-    case "GitHubApiAuthenticationError":
-      return failure(
-        "GitHub is not authenticated. Run `gh auth login` (or set GH_TOKEN) and retry.",
-        error,
-      );
-    case "GitHubApiRateLimitError":
-    case "SourceControlRateLimitPausedError":
-      return failure(
-        "GitHub API rate limit exceeded. Requests resume when the limit resets.",
-        error,
-      );
-    case "GitHubApiNotFoundError":
-      return failure(notFound, error);
-    case "GitHubCliFailedError":
-    case "GitHubApiResponseError":
-    case "GitHubApiRequestError":
-      return failure(error.message.trim() || "GitHub request failed.", error);
-  }
-}
-
-const notFound = (cause: string) => failure(PULL_REQUEST_NOT_FOUND, new Error(cause));
 
 const RawRepositorySchema = Schema.Struct({
   full_name: TrimmedNonEmptyString,
