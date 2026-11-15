@@ -117,23 +117,38 @@ export interface OpenBlock {
   text: string;
 }
 
+export interface ImageJob {
+  readonly turn: ActiveTurn;
+  readonly toolId: string;
+  readonly tool: { readonly name: string; input: Record<string, unknown> };
+  previewed: boolean;
+  readonly path: string;
+  readonly model: string;
+  status: "running" | "completed" | "error" | "cancelled";
+}
+
+// Settled jobs absorb replayed launches and late previews, so only the oldest are dropped.
+const SETTLED_IMAGE_JOB_LIMIT = 64;
+
+export const trackImageJob = (jobs: Map<string, ImageJob>, jobID: string, job: ImageJob) => {
+  if (jobs.has(jobID)) return;
+  jobs.set(jobID, job);
+  let excess = -SETTLED_IMAGE_JOB_LIMIT;
+  for (const each of jobs.values()) if (each.status !== "running") excess++;
+  for (const [id, each] of jobs) {
+    if (excess <= 0) return;
+    if (each.status === "running") continue;
+    jobs.delete(id);
+    excess--;
+  }
+};
+
 export interface ThreadState {
   readonly sessionId: string;
   providerThread: OrchestrationV2ProviderThread;
   publishedBackgroundWork?: boolean;
   sessionScopedBackground?: boolean;
-  readonly imageJobs: Map<
-    string,
-    {
-      readonly turn: ActiveTurn;
-      readonly toolId: string;
-      readonly tool: { readonly name: string; input: Record<string, unknown> };
-      previewed: boolean;
-      readonly path: string;
-      readonly model: string;
-      status: "running" | "completed" | "error" | "cancelled";
-    }
-  >;
+  readonly imageJobs: Map<string, ImageJob>;
   goalRevision: number;
   goalFresh: boolean;
   goalRefreshing: boolean;

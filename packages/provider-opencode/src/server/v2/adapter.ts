@@ -10,7 +10,7 @@ import type {
   PendingRequest,
 } from "./adapterState.ts";
 export type { ActiveTurn } from "./adapterState.ts";
-import { makeNewThreadState } from "./adapterState.ts";
+import { makeNewThreadState, trackImageJob } from "./adapterState.ts";
 import { makeTurnStatusItems } from "./turnStatusItems.ts";
 import {
   OWNED_RECOVERY_RETRY,
@@ -624,16 +624,15 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             state.imageJobs.get(jobID)?.status !== "running"
           )
             return;
-          if (!state.imageJobs.has(jobID))
-            state.imageJobs.set(jobID, {
-              turn,
-              toolId: id,
-              tool,
-              previewed: false,
-              path,
-              model,
-              status: "running",
-            });
+          trackImageJob(state.imageJobs, jobID, {
+            turn,
+            toolId: id,
+            tool,
+            previewed: false,
+            path,
+            model,
+            status: "running",
+          });
           status = "running";
           yield* syncRosterAncestors(state);
         }
