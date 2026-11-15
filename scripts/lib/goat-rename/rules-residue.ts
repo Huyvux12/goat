@@ -54,7 +54,7 @@ export const RESIDUE_KEEP_RULES: readonly KeepRule[] = [
       "patches/dbus-next@0.10.2.patch",
       "scripts/lib/release-notices.ts",
     ],
-    /patched in T3 Code|T3 Code builds Windows installers|T3 Code never passes Unix descriptors|based on T3 Code/g,
+    /[Pp]atched in T3 Code|T3 Code builds Windows installers|T3 Code never passes Unix descriptors|based on T3 Code/g,
     "#99/R6: license provenance and vendor patch notes attribute upstream authorship.",
   ),
   keep(
