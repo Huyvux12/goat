@@ -79,6 +79,8 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
   const { useContext, useState, useSyncExternalStore } = await import("react");
   const { GoatBotChatHidden, GoatBotHomeDockedRegistry } =
     await import("../components/goatBot/goatBotLayout");
+  // The app's own sheet: Base UI empties its portal container before removing it.
+  const { Sheet, SheetPopup, SheetTitle } = await import("../components/ui/sheet");
   return {
     GoatBotChatView: (props: { removal?: string | null; onRestore?: () => void }) => {
       state.chatSession = props;
@@ -102,17 +104,27 @@ vi.mock("../components/goatBot/GoatBotChatView", async () => {
             <button type="button" onClick={() => setModalOpen(true)}>
               Open modal
             </button>
-            {modalOpen
-              ? createPortal(
-                  <div role="dialog" aria-label="Chat modal" data-slot={state.modalSlot} data-open>
-                    <input aria-label="In modal" />
-                    <button type="button" onClick={() => setModalOpen(false)}>
-                      Close modal
-                    </button>
-                  </div>,
-                  document.body,
-                )
-              : null}
+            {state.modalSlot === "base-ui-sheet" ? (
+              <Sheet open={modalOpen} onOpenChange={setModalOpen}>
+                <SheetPopup showCloseButton={false}>
+                  <SheetTitle>Chat modal</SheetTitle>
+                  <input aria-label="In modal" />
+                  <button type="button" onClick={() => setModalOpen(false)}>
+                    Close modal
+                  </button>
+                </SheetPopup>
+              </Sheet>
+            ) : modalOpen ? (
+              createPortal(
+                <div role="dialog" aria-label="Chat modal" data-slot={state.modalSlot} data-open>
+                  <input aria-label="In modal" />
+                  <button type="button" onClick={() => setModalOpen(false)}>
+                    Close modal
+                  </button>
+                </div>,
+                document.body,
+              )
+            ) : null}
             {homeDocked ? (
               <aside ref={registerHomeDocked} data-goat-bot-home-docked aria-label="Home">
                 <input aria-label="New wording" />
@@ -737,4 +749,25 @@ it("closing a modal the chat opened while the task replaces the chat sends focus
   await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
   await userEvent.click(page.getByRole("button", { name: "Close modal" }));
   await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+});
+
+it("closing the app's own sheet of the chat while the task replaces the chat sends focus to the task heading", async () => {
+  state.beside = true;
+  state.modalSlot = "base-ui-sheet";
+  try {
+    await using _window = await windowWidth(1440);
+    const container = row(1000);
+    await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+    await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+    // The sheet's initial focus is its first field.
+    await expect.element(page.getByRole("textbox", { name: "In modal" })).toHaveFocus();
+    container.style.width = "700px";
+    await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "In modal" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByRole("dialog", { name: "Chat modal" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("heading", { name: "Task heading" })).toHaveFocus();
+  } finally {
+    state.modalSlot = "dialog-popup";
+  }
 });

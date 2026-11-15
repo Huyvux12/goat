@@ -100,7 +100,8 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   });
   // While the task replaces the chat, a modal of the chat that closes (Home's sheet, Edit bot)
   // returns focus to its hidden trigger, which drops it to the page; the task heading takes it.
-  // Base UI portals each popup as a child of <body>, so only that list is watched, only meanwhile.
+  // Base UI portals each popup into a [data-base-ui-portal] child of <body>, emptied before it is
+  // removed, so only that list is watched, and only meanwhile.
   const rowElement = useRef<HTMLElement | null>(null);
   const watchModalClose = (chat: HTMLElement | null) => {
     if (chat === null) return;
@@ -110,7 +111,9 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
         [...record.removedNodes].some(
           (node) =>
             node instanceof Element &&
-            (node.matches(MODAL_POPUP) || node.querySelector(MODAL_POPUP)),
+            (node.matches("[data-base-ui-portal]") ||
+              node.matches(MODAL_POPUP) ||
+              node.querySelector(MODAL_POPUP) !== null),
         ),
       );
       const active = doc.activeElement;
