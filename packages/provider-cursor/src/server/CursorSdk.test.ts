@@ -191,4 +191,27 @@ describe("CursorSdk agent transport", () => {
       assert.lengthOf(warnings, warns ? 1 : 0);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("tells whether an environment's configuration selects the transport it loaded", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-cursor-cli-config-" });
+      const home = path.join(root, "home");
+      const other = path.join(root, "other");
+      yield* fileSystem.makeDirectory(other, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(other, "cli-config.json"), http1);
+      yield* Effect.gen(function* () {
+        const sdk = Context.get(yield* Layer.build(CursorSdk.layer), CursorSdk.CursorSdk);
+        const matches = sdk.agentTransportMatches;
+        assert.isDefined(matches);
+        assert.isTrue(yield* matches({}));
+        assert.isFalse(yield* matches({ CURSOR_CONFIG_DIR: other }));
+        // The host's own file changes after GOAT loaded it.
+        yield* fileSystem.makeDirectory(path.join(home, ".cursor"), { recursive: true });
+        yield* fileSystem.writeFileString(path.join(home, ".cursor", "cli-config.json"), http1);
+        assert.isFalse(yield* matches({}));
+      }).pipe(Effect.scoped, withHost({}, home));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 });

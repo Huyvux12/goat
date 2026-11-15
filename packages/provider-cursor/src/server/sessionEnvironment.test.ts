@@ -16,3 +16,16 @@ it.effect("a session retains its environment when the host changes", () =>
     expect(second.apiKey).toBe("new-key");
   }),
 );
+
+it.effect(
+  "a session whose Cursor configuration selects another agent transport asks for a restart",
+  () =>
+    Effect.gen(function* () {
+      const session = yield* SessionEnvironment.forSession(
+        { CURSOR_CONFIG_DIR: "/http1-config" },
+        { agentTransportMatches: () => Effect.succeed(false) },
+      );
+      const error = yield* session.validate.pipe(Effect.flip);
+      expect(String(error.cause)).toContain("Restart GOAT");
+    }),
+);

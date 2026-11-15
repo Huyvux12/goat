@@ -43,11 +43,15 @@ const decodeCursorCliConfig = Schema.decodeEffect(
   ),
 );
 
+/** Shown when a new session's Cursor configuration selects another transport than GOAT loaded. */
+export const CURSOR_AGENT_TRANSPORT_RESTART_MESSAGE =
+  "Cursor's agent transport setting (network.useHttp1ForAgent) differs from the one GOAT started with. Restart GOAT to use it.";
+
 // Proxies without HTTP/2 need this Cursor CLI setting, which the SDK never reads itself.
-const readCursorCliUseHttp1ForAgent = Effect.gen(function* () {
+const readCursorCliUseHttp1ForAgent = Effect.fnUntraced(function* (environment: NodeJS.ProcessEnv) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const { CURSOR_CONFIG_DIR, XDG_CONFIG_HOME } = yield* HostProcess.Environment;
+  const { CURSOR_CONFIG_DIR, XDG_CONFIG_HOME } = environment;
   const configDirectory = CURSOR_CONFIG_DIR?.trim()
     ? CURSOR_CONFIG_DIR
     : XDG_CONFIG_HOME?.trim()
@@ -64,7 +68,7 @@ const readCursorCliUseHttp1ForAgent = Effect.gen(function* () {
     ),
   );
   return config?.network?.useHttp1ForAgent === true;
-}).pipe(Effect.withSpan("CursorSdk.readCliUseHttp1ForAgent"));
+}, Effect.withSpan("CursorSdk.readCliUseHttp1ForAgent"));
 
 /** Keeps the shell spawn guard armed while in-process agents run. */
 export class CursorSdk extends Context.Service<
@@ -72,6 +76,8 @@ export class CursorSdk extends Context.Service<
   {
     readonly load: typeof loadCursorSdk;
     readonly loadSqlite: typeof loadCursorSqlite;
+    /** Whether an environment's Cursor configuration selects the transport this process uses. */
+    readonly agentTransportMatches?: (environment: NodeJS.ProcessEnv) => Effect.Effect<boolean>;
   }
 >()("@goat/provider-cursor/server/CursorSdk") {}
 
@@ -82,8 +88,18 @@ export const layer = Layer.effect(
       Effect.sync(() => containRejections(classifyCursorRejection)),
       (release) => Effect.sync(release),
     );
-    // The SDK picks the agent transport per process, so no provider instance can own this.
-    const useHttp1ForAgent = yield* readCursorCliUseHttp1ForAgent;
+    // The SDK picks the agent transport per process, so no provider instance can own this; a new
+    // session whose configuration selects another one is refused with a restart message.
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const home = yield* HostProcess.HomeDirectory;
+    const readTransport = (environment: NodeJS.ProcessEnv) =>
+      readCursorCliUseHttp1ForAgent(environment).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(HostProcess.HomeDirectory, home),
+      );
+    const useHttp1ForAgent = yield* readTransport(yield* HostProcess.Environment);
     let configured = false;
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -100,6 +116,11 @@ export const layer = Layer.effect(
         return sdk;
       },
       loadSqlite: loadCursorSqlite,
+      agentTransportMatches: Effect.fn("CursorSdk.agentTransportMatches")(function* (
+        environment: NodeJS.ProcessEnv,
+      ) {
+        return (yield* readTransport(environment)) === useHttp1ForAgent;
+      }),
     });
   }),
 );

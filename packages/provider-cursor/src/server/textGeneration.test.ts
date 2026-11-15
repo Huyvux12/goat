@@ -12,6 +12,7 @@ import { createModelSelection } from "@goat/shared/model";
 import { beforeEach, vi } from "vite-plus/test";
 import { makeCursorTextGeneration } from "./textGeneration.ts";
 import * as CursorSdk from "./CursorSdk.ts";
+import { loadCursorSdk, loadCursorSqlite } from "./sdk.ts";
 import * as HostProcess from "@goat/shared/HostProcess";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
@@ -200,6 +201,30 @@ beforeEach(() => {
 });
 
 describe("CursorTextGeneration", () => {
+  it.effect("refuses text generation when the Cursor agent transport setting differs", () =>
+    Effect.gen(function* () {
+      const generation = yield* makeCursorTextGeneration(cursorSettings, { CURSOR_API_KEY: "key" });
+      const input = {
+        cwd: process.cwd(),
+        branch: "test",
+        stagedSummary: "M file",
+        stagedPatch: "diff",
+        modelSelection: createModelSelection(ProviderInstanceId.make("cursor"), "auto"),
+      };
+      const error = yield* generation.generateCommitMessage(input).pipe(Effect.flip);
+      expect(error.detail).toContain("Restart GOAT");
+      expect(cursorSdkMock.create).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(CursorSdk.CursorSdk, {
+          load: loadCursorSdk,
+          loadSqlite: loadCursorSqlite,
+          agentTransportMatches: () => Effect.succeed(false),
+        }).pipe(Layer.provideMerge(Layer.merge(layerFs, Path.layer))),
+      ),
+    ),
+  );
+
   it.effect("refuses text generation when the selected backend differs", () =>
     Effect.gen(function* () {
       const backend = process.env.CURSOR_BACKEND_URL;
