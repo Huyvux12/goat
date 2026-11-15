@@ -100,22 +100,17 @@ export function useGoatBotTaskBeside(besideSetting: boolean) {
   });
   // While the task replaces the chat, a modal of the chat that closes (Home's sheet, Edit bot)
   // returns focus to its hidden trigger, which drops it to the page; the task heading takes it.
-  // Base UI portals each popup into a [data-base-ui-portal] child of <body>, emptied before it is
-  // removed, so only that list is watched, and only meanwhile.
+  // Base UI portals each popup, tooltips included, into a child of <body>, so only that list is
+  // watched, only meanwhile, and only a modal going from shown to gone counts.
   const rowElement = useRef<HTMLElement | null>(null);
   const watchModalClose = (chat: HTMLElement | null) => {
     if (chat === null) return;
     const doc = chat.ownerDocument;
-    const observer = new MutationObserver((records) => {
-      const closed = records.some((record) =>
-        [...record.removedNodes].some(
-          (node) =>
-            node instanceof Element &&
-            (node.matches("[data-base-ui-portal]") ||
-              node.matches(MODAL_POPUP) ||
-              node.querySelector(MODAL_POPUP) !== null),
-        ),
-      );
+    let modalShown = doc.querySelector(MODAL_POPUP) !== null;
+    const observer = new MutationObserver(() => {
+      const shown = doc.querySelector(MODAL_POPUP) !== null;
+      const closed = modalShown && !shown;
+      modalShown = shown;
       const active = doc.activeElement;
       if (closed && (active === null || active === doc.body))
         rowElement.current?.querySelector<HTMLElement>("[data-goat-bot-task-heading]")?.focus();

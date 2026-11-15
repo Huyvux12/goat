@@ -726,16 +726,40 @@ it.each(["sheet-popup", "dialog-popup", "alert-dialog-popup"])(
   async (slot) => {
     state.beside = true;
     state.modalSlot = slot;
-    await using _window = await windowWidth(1440);
-    const container = row(1000);
-    await using screen = await render(taskRoute, { router: false, container }); // No navigation.
-    await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
-    await userEvent.click(page.getByRole("textbox", { name: "In modal" }));
-    container.style.width = "700px";
-    await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
-    await expect.element(page.getByRole("textbox", { name: "In modal" })).toHaveFocus();
+    try {
+      await using _window = await windowWidth(1440);
+      const container = row(1000);
+      await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+      await userEvent.click(screen.getByRole("button", { name: "Open modal" }));
+      await userEvent.click(page.getByRole("textbox", { name: "In modal" }));
+      container.style.width = "700px";
+      await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+      await expect.element(page.getByRole("textbox", { name: "In modal" })).toHaveFocus();
+    } finally {
+      state.modalSlot = "dialog-popup";
+    }
   },
 );
+
+it("a tooltip or popover closing while the task replaces the chat leaves focus where it was", async () => {
+  state.beside = true;
+  await using _window = await windowWidth(1440);
+  const container = row(1000);
+  await using screen = await render(taskRoute, { router: false, container }); // No navigation.
+  container.style.width = "700px";
+  await expect.element(screen.getByText("Back to Tasks")).toBeVisible();
+  // Focus rests on the page, as after a click on plain text in the task.
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  expect(document.activeElement).toBe(document.body);
+  // Base UI portals tooltips and popovers into the same kind of <body> child as its modals.
+  const portal = document.createElement("div");
+  portal.setAttribute("data-base-ui-portal", "");
+  portal.append(Object.assign(document.createElement("div"), { role: "tooltip" }));
+  await act(() => document.body.append(portal));
+  // The removal's MutationObserver callback is a microtask, run before act() settles.
+  await act(() => portal.remove());
+  expect(document.activeElement).toBe(document.body);
+});
 
 it("closing a modal the chat opened while the task replaces the chat sends focus to the task heading", async () => {
   state.beside = true;
