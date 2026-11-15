@@ -204,6 +204,7 @@ const RawWorkflowRunsSchema = Schema.Struct({
       id: Schema.Int,
       name: Schema.optional(Schema.NullOr(Schema.String)),
       html_url: Schema.optional(Schema.NullOr(Schema.String)),
+      status: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 });
@@ -773,7 +774,7 @@ const decodeDetail = decodeJsonResult(
     updatedAt: Schema.String,
   }),
 );
-const decodeWorkflowRuns = decodeJsonResult(RawWorkflowRunsSchema);
+export const decodeWorkflowRuns = decodeJsonResult(RawWorkflowRunsSchema);
 const decodeFileEntry = Schema.decodeUnknownExit(RawPullRequestFileSchema);
 const decodeRow = Schema.decodeUnknownExit(PullRequestRow);
 
@@ -797,7 +798,7 @@ export const LenientPullRequestList = GraphQL.query(PullRequestList.name, {
   }),
 });
 
-type DecodeFailure = Cause.Cause<Schema.SchemaError>;
+export type DecodeFailure = Cause.Cause<Schema.SchemaError>;
 
 /** Count skipped invalid rows in rawCount to avoid ending pagination early. */
 export function toPullRequestRows(
